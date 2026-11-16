@@ -3,90 +3,124 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  GraduationCap,
-  LayoutDashboard,
-  BookOpen,
-  LogOut,
-  Files,
-  Clock,
-  BookMarked,
-  Calendar,
-  PenTool,
-  CheckCircle,
   AlertCircle,
-  X,
-  PlusCircle,
-  Pencil,
-  Trash2,
-  FolderOpen,
-  ChevronRight,
-  Home,
-  FileUp,
-  Plus,
-  Download,
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  BookMarked,
+  BookOpen,
+  Calendar,
+  Check,
+  CheckCircle,
   CheckSquare,
+  ChevronRight,
+  Clock,
+  Cloud,
+  Download,
   FileCheck,
   FileQuestion,
-  AlertTriangle,
-  User,
-  Lock,
+  Files,
+  FileUp,
+  FolderOpen,
+  GraduationCap,
+  Home,
   IdCard,
-  UserCheck,
-  Check,
-  ArrowRight,
-  Code2,
-  Copy,
-  RotateCcw,
+  LayoutDashboard,
+  Loader2,
+  Lock,
+  LogIn,
+  LogOut,
   Menu,
-  Search
+  Pencil,
+  PenTool,
+  Plus,
+  PlusCircle,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  User,
+  UserCheck,
+  UserPlus,
+  X,
 } from 'lucide-react';
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  updateProfile,
+  User as FirebaseUser,
+} from 'firebase/auth';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+  writeBatch,
+} from 'firebase/firestore';
+import {
+  auth,
+  db,
+  deleteFileFromFirestore,
+  downloadFileFromFirestore,
+  generateDocId,
+  googleProvider,
+  handleFirestoreError,
+  MAX_CLOUD_FILE_BYTES,
+  OperationType,
+  uploadFileToFirestore,
+} from './firebase';
 
 // ==========================================
-// TYPES & SCHEMAS (3NF Sesuai database.sql)
+// TYPES & SCHEMAS
 // ==========================================
-export interface MahasiswaUser {
-  nim: string;
-  nama: string;
-}
-
 export interface MataKuliah {
-  id_matkul: number;
+  id_matkul: string;
   nama_matkul: string;
   dosen_pengampu: string;
   hari: string;
   jam: string;
+  isPublic?: boolean;
+  ownerUid?: string;
 }
 
 export interface Materi {
-  id_materi: number;
-  id_matkul: number;
+  id_materi: string;
+  id_matkul: string;
   pertemuan: number;
   judul_materi: string;
   file_path: string;
+  file_id?: string;
+  isPublic?: boolean;
+  ownerUid?: string;
 }
 
 export interface Tugas {
-  id_tugas: number;
-  id_matkul: number;
+  id_tugas: string;
+  id_matkul: string;
   nama_tugas: string;
   deskripsi: string;
   tenggat_waktu: string; // YYYY-MM-DD HH:mm:ss
   status: 'Belum Dimulai' | 'Proses' | 'Selesai';
   file_jawaban?: string;
+  file_id?: string;
   catatan_jawaban?: string;
+  submittedByUid?: string;
+  submittedByName?: string;
+  isPublic?: boolean;
+  ownerUid?: string;
 }
 
-// ==========================================
-// INITIAL SEED DATA
-// ==========================================
-const DEFAULT_USER: MahasiswaUser = {
-  nim: '240511200',
-  nama: 'Muhamad Azlan Farizki',
-};
-
-// Hitung tanggal besok untuk memicu banner H-1 secara akurat
 const getTomorrowDateStr = (hours = 23, minutes = 59) => {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -101,29 +135,17 @@ const getFutureDateStr = (daysAhead: number, hours = 17, minutes = 0) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(hours)}:${pad(minutes)}:00`;
 };
 
-const INITIAL_MATKUL: MataKuliah[] = [
-  { id_matkul: 1, nama_matkul: 'Pemrograman Web Lanjut', dosen_pengampu: 'Dr. Hendra Gunawan, M.T.', hari: 'Senin', jam: '08.00 - 10.30' },
-  { id_matkul: 2, nama_matkul: 'Basis Data Relasional', dosen_pengampu: 'Siti Rahmawati, S.Kom., M.Cs.', hari: 'Selasa', jam: '13.00 - 15.30' },
-  { id_matkul: 3, nama_matkul: 'Kecerdasan Buatan & ML', dosen_pengampu: 'Prof. Bambang Supriyadi, Ph.D.', hari: 'Rabu', jam: '10.00 - 12.30' },
-  { id_matkul: 4, nama_matkul: 'Rekayasa Perangkat Lunak', dosen_pengampu: 'Ahmad Fauzi, M.Kom.', hari: 'Kamis', jam: '08.00 - 10.30' },
-];
-
-const INITIAL_MATERI: Materi[] = [
-  { id_materi: 1, id_matkul: 1, pertemuan: 1, judul_materi: 'Pengenalan Arsitektur MVC & Flask Framework', file_path: 'uploads/materi/pertemuan_1_mvc_flask.pdf' },
-  { id_materi: 2, id_matkul: 1, pertemuan: 2, judul_materi: 'Routing, Template Jinja2, dan Form Handling', file_path: 'uploads/materi/pertemuan_2_jinja_routing.pdf' },
-  { id_materi: 3, id_matkul: 2, pertemuan: 1, judul_materi: 'Normalisasi Basis Data 1NF sampai 3NF', file_path: 'uploads/materi/pertemuan_1_normalisasi_3nf.pdf' },
-  { id_materi: 4, id_matkul: 3, pertemuan: 1, judul_materi: 'Dasar Machine Learning dan Supervised Algorithms', file_path: 'uploads/materi/pertemuan_1_intro_ml.pdf' },
-];
-
 export function getAutomatedTaskStatus(task: {
   status: string;
   tenggat_waktu: string;
   file_jawaban?: string;
 }) {
   const hasFile = Boolean(task.file_jawaban && task.file_jawaban.trim());
-  const now = new Date();
-  const deadline = new Date(task.tenggat_waktu.replace(' ', 'T'));
-  const isOverdue = !isNaN(deadline.getTime()) && now > deadline;
+  const normalizedDeadline = task.tenggat_waktu.includes(' ')
+    ? task.tenggat_waktu.replace(' ', 'T')
+    : task.tenggat_waktu;
+  const deadlineDate = new Date(normalizedDeadline);
+  const isOverdue = !hasFile && !isNaN(deadlineDate.getTime()) && new Date() > deadlineDate;
 
   if (hasFile) {
     return {
@@ -168,114 +190,197 @@ export function getAutomatedTaskStatus(task: {
   };
 }
 
-const getInitialTugas = (): Tugas[] => [
-  {
-    id_tugas: 1,
-    id_matkul: 1,
-    nama_tugas: 'Tugas 1: Implementasi CRUD Flask & MySQL',
-    deskripsi: 'Buat antarmuka CRUD mahasiswa menggunakan Flask dan MySQL, lampirkan script SQL dan tangkapan layar endpoint.',
-    tenggat_waktu: getTomorrowDateStr(23, 59),
-    status: 'Proses',
-    // Berkas jawaban belum diunggah: status belum Selesai
-  },
-  {
-    id_tugas: 2,
-    id_matkul: 2,
-    nama_tugas: 'Tugas Desain ERD & Normalisasi Toko Online',
-    deskripsi: 'Rancang ERD sistem inventori dan lakukan normalisasi relasional minimal sampai bentuk 3NF.',
-    tenggat_waktu: getFutureDateStr(3, 17, 0),
-    status: 'Belum Dimulai',
-  },
-  {
-    id_tugas: 3,
-    id_matkul: 3,
-    nama_tugas: 'Praktikum Linear Regression dengan Scikit-Learn',
-    deskripsi: 'Eksplorasi dataset perumahan dan hitung metrik Mean Squared Error serta nilai R2 score.',
-    tenggat_waktu: getFutureDateStr(5, 23, 59),
-    status: 'Belum Dimulai',
-  },
-  {
-    id_tugas: 4,
-    id_matkul: 4,
-    nama_tugas: 'Dokumen Spesifikasi Kebutuhan Perangkat Lunak (SRS)',
-    deskripsi: 'Penyusunan dokumen SRS berstandar IEEE untuk sistem akademik.',
-    tenggat_waktu: getFutureDateStr(-2, 23, 59),
-    status: 'Selesai',
-    file_jawaban: 'uploads/tugas/srs_sistem_akademik_azlan.pdf',
-    catatan_jawaban: 'Dokumen final SRS telah lengkap dengan diagram use case.',
-  },
-  {
-    id_tugas: 5,
-    id_matkul: 2,
-    nama_tugas: 'Tugas Analisis Query & Relasi SQL Lanjutan',
-    deskripsi: 'Optimasi query JOIN dan pembuatan index pada tabel berskala besar.',
-    tenggat_waktu: getFutureDateStr(-1, 23, 59), // Melewati batas waktu (Terlambat)
-    status: 'Belum Dimulai',
-  },
-];
-
 export default function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<'dashboard' | 'matakuliah'>('dashboard');
-  const [selectedMatkulId, setSelectedMatkulId] = useState<number | null>(null);
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
-  const [currentUser, setCurrentUser] = useState<MahasiswaUser>(DEFAULT_USER);
+  const [selectedMatkulId, setSelectedMatkulId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Flip card auth state
-  const [isRegisterFlipped, setIsRegisterFlipped] = useState(false);
-  const [loginNim, setLoginNim] = useState('240511200');
-  const [loginPass, setLoginPass] = useState('password123');
+  // Firebase Auth State
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [loginNim, setLoginNim] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [regNim, setRegNim] = useState('');
   const [regNama, setRegNama] = useState('');
-  const [regPass, setRegPass] = useState('');
+  const [regPassword, setRegPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
+  const [showProviderSetupHint, setShowProviderSetupHint] = useState(false);
+  const [userProfile, setUserProfile] = useState<{ nama?: string; nim?: string } | null>(null);
 
-  // App Data State (LocalStorage sync)
-  const [matkulList, setMatkulList] = useState<MataKuliah[]>(() => {
-    const saved = localStorage.getItem('kuliah_matkul');
-    return saved ? JSON.parse(saved) : INITIAL_MATKUL;
-  });
+  // Cloud Firestore Data State (shared across all users & browsers)
+  const [matkulList, setMatkulList] = useState<MataKuliah[]>([]);
+  const [materiList, setMateriList] = useState<Materi[]>([]);
+  const [tugasList, setTugasList] = useState<Tugas[]>([]);
+  const [isLoadingCloud, setIsLoadingCloud] = useState(true);
+  const [isSeeding, setIsSeeding] = useState(false);
 
-  const [materiList, setMateriList] = useState<Materi[]>(() => {
-    const saved = localStorage.getItem('kuliah_materi');
-    return saved ? JSON.parse(saved) : INITIAL_MATERI;
-  });
-
-  const [tugasList, setTugasList] = useState<Tugas[]>(() => {
-    const saved = localStorage.getItem('kuliah_tugas');
-    if (!saved) return getInitialTugas();
-    try {
-      const parsed = JSON.parse(saved);
-      const hasAnyFile = parsed.some((t: Tugas) => Boolean(t.file_jawaban));
-      if (!hasAnyFile && parsed.length > 0) {
-        parsed[0].file_jawaban = 'uploads/tugas/draft_crud_azlan.zip';
-        parsed[0].catatan_jawaban = 'Script SQL dan implementasi controller Flask sudah siap diuji.';
-      }
-      return parsed;
-    } catch {
-      return getInitialTugas();
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem('kuliah_matkul', JSON.stringify(matkulList));
-  }, [matkulList]);
-
-  useEffect(() => {
-    localStorage.setItem('kuliah_materi', JSON.stringify(materiList));
-  }, [materiList]);
-
-  useEffect(() => {
-    localStorage.setItem('kuliah_tugas', JSON.stringify(tugasList));
-  }, [tugasList]);
+  // Operation Loading States
+  const [isSubmittingKerjakan, setIsSubmittingKerjakan] = useState(false);
+  const [isSubmittingMateri, setIsSubmittingMateri] = useState(false);
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
 
   // Flash / Notification toast
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'info' | 'danger' } | null>(null);
   const showToast = (text: string, type: 'success' | 'info' | 'danger' = 'success') => {
     setToastMsg({ text, type });
-    setTimeout(() => setToastMsg(null), 4000);
+    setTimeout(() => setToastMsg(null), 4500);
   };
+
+  // Listen to Firebase Auth + fetch student profile from Firestore
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      setFirebaseUser(user);
+      if (user) {
+        try {
+          const saved = localStorage.getItem(`kuliah_profile_${user.uid}`);
+          if (saved) setUserProfile(JSON.parse(saved));
+        } catch {
+          // ignore localStorage read error
+        }
+        try {
+          const snap = await getDoc(doc(db, 'users', user.uid));
+          if (snap.exists()) {
+            const data = snap.data();
+            const profileData = {
+              nama: data.nama ? String(data.nama) : user.displayName || undefined,
+              nim: data.nim ? String(data.nim) : undefined,
+            };
+            setUserProfile(profileData);
+            try {
+              localStorage.setItem(`kuliah_profile_${user.uid}`, JSON.stringify(profileData));
+            } catch {
+              // ignore storage quota errors
+            }
+          }
+        } catch {
+          // ignore if user profile document does not exist yet
+        }
+      } else {
+        setUserProfile(null);
+      }
+      setIsAuthReady(true);
+    });
+    return () => unsub();
+  }, []);
+
+  // Real-time Firestore Subscriptions (Only active after user logs in)
+  useEffect(() => {
+    if (!isAuthReady) return;
+    if (!firebaseUser) {
+      setMatkulList([]);
+      setMateriList([]);
+      setTugasList([]);
+      setIsLoadingCloud(false);
+      return;
+    }
+
+    setIsLoadingCloud(true);
+    let loadedMatkul = false;
+    let loadedMateri = false;
+    let loadedTugas = false;
+    const checkDone = () => {
+      if (loadedMatkul && loadedMateri && loadedTugas) {
+        setIsLoadingCloud(false);
+      }
+    };
+
+    const qMatkul = query(collection(db, 'matakuliah'), where('isPublic', '==', true));
+    const unsubMatkul = onSnapshot(
+      qMatkul,
+      (snapshot) => {
+        const items: MataKuliah[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            id_matkul: d.id,
+            nama_matkul: String(data.nama_matkul || ''),
+            dosen_pengampu: String(data.dosen_pengampu || ''),
+            hari: String(data.hari || 'Senin'),
+            jam: String(data.jam || ''),
+            isPublic: Boolean(data.isPublic),
+            ownerUid: String(data.ownerUid || ''),
+          };
+        });
+        setMatkulList(items);
+        loadedMatkul = true;
+        checkDone();
+      },
+      (error) => {
+        loadedMatkul = true;
+        checkDone();
+        handleFirestoreError(error, OperationType.LIST, 'matakuliah');
+      }
+    );
+
+    const qMateri = query(collection(db, 'materi'), where('isPublic', '==', true));
+    const unsubMateri = onSnapshot(
+      qMateri,
+      (snapshot) => {
+        const items: Materi[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            id_materi: d.id,
+            id_matkul: String(data.id_matkul || ''),
+            pertemuan: Number(data.pertemuan || 1),
+            judul_materi: String(data.judul_materi || ''),
+            file_path: String(data.file_path || ''),
+            file_id: data.file_id ? String(data.file_id) : '',
+            isPublic: Boolean(data.isPublic),
+            ownerUid: String(data.ownerUid || ''),
+          };
+        });
+        setMateriList(items);
+        loadedMateri = true;
+        checkDone();
+      },
+      (error) => {
+        loadedMateri = true;
+        checkDone();
+        handleFirestoreError(error, OperationType.LIST, 'materi');
+      }
+    );
+
+    const qTugas = query(collection(db, 'tugas'), where('isPublic', '==', true));
+    const unsubTugas = onSnapshot(
+      qTugas,
+      (snapshot) => {
+        const items: Tugas[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            id_tugas: d.id,
+            id_matkul: String(data.id_matkul || ''),
+            nama_tugas: String(data.nama_tugas || ''),
+            deskripsi: String(data.deskripsi || ''),
+            tenggat_waktu: String(data.tenggat_waktu || ''),
+            status: (data.status as Tugas['status']) || 'Belum Dimulai',
+            file_jawaban: data.file_jawaban ? String(data.file_jawaban) : '',
+            file_id: data.file_id ? String(data.file_id) : '',
+            catatan_jawaban: data.catatan_jawaban ? String(data.catatan_jawaban) : '',
+            submittedByUid: data.submittedByUid ? String(data.submittedByUid) : '',
+            submittedByName: data.submittedByName ? String(data.submittedByName) : '',
+            isPublic: Boolean(data.isPublic),
+            ownerUid: String(data.ownerUid || ''),
+          };
+        });
+        setTugasList(items);
+        loadedTugas = true;
+        checkDone();
+      },
+      (error) => {
+        loadedTugas = true;
+        checkDone();
+        handleFirestoreError(error, OperationType.LIST, 'tugas');
+      }
+    );
+
+    return () => {
+      unsubMatkul();
+      unsubMateri();
+      unsubTugas();
+    };
+  }, [isAuthReady, firebaseUser]);
 
   // Modals state
   const [modalKerjakanOpen, setModalKerjakanOpen] = useState(false);
@@ -285,6 +390,8 @@ export default function App() {
   const [kerjakanStatus, setKerjakanStatus] = useState<'Belum Dimulai' | 'Proses' | 'Selesai'>('Proses');
   const [kerjakanCatatan, setKerjakanCatatan] = useState('');
   const [kerjakanFileName, setKerjakanFileName] = useState('');
+  const [kerjakanSelectedFile, setKerjakanSelectedFile] = useState<File | null>(null);
+  const [kerjakanExistingFileId, setKerjakanExistingFileId] = useState('');
 
   // Matkul Modals
   const [modalTambahMatkulOpen, setModalTambahMatkulOpen] = useState(false);
@@ -298,20 +405,310 @@ export default function App() {
 
   // Detail Class Modals
   const [modalUnggahMateriOpen, setModalUnggahMateriOpen] = useState(false);
-  const [newMateri, setNewMateri] = useState({ pertemuan: 1, judul_materi: '', fileName: '' });
+  const [newMateri, setNewMateri] = useState<{
+    pertemuan: number;
+    judul_materi: string;
+    fileName: string;
+    fileObj: File | null;
+  }>({ pertemuan: 1, judul_materi: '', fileName: '', fileObj: null });
 
   const [modalTambahTugasOpen, setModalTambahTugasOpen] = useState(false);
   const [newTugas, setNewTugas] = useState({
     nama_tugas: '',
     deskripsi: '',
     tenggat_waktu: '',
-    status: 'Belum Dimulai' as 'Belum Dimulai' | 'Proses',
   });
 
-  // --------------------------------------------------------
+  // Auth Helpers: Convert NIM -> synthetic internal Firebase Auth email
+  const nimToAuthEmail = (nim: string) => {
+    const cleaned = nim.trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+    return `${cleaned}@kuliahapp.id`;
+  };
+
+  // Handle NIM + Password Login
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setShowProviderSetupHint(false);
+
+    const cleanedNim = loginNim.trim().replace(/[^a-zA-Z0-9._-]/g, '');
+    if (cleanedNim.length < 3) {
+      setAuthError('Masukkan NIM yang valid (minimal 3 karakter huruf/angka).');
+      return;
+    }
+    if (loginPassword.length < 6) {
+      setAuthError('Kata sandi minimal 6 karakter.');
+      return;
+    }
+
+    setIsSigningIn(true);
+    try {
+      const cred = await signInWithEmailAndPassword(auth, nimToAuthEmail(cleanedNim), loginPassword);
+      setLoginPassword('');
+      showToast(`Selamat datang kembali, ${cred.user.displayName || cleanedNim}!`, 'success');
+    } catch (error) {
+      const code = (error as { code?: string })?.code || '';
+      const msg = error instanceof Error ? error.message : 'Gagal masuk ke akun.';
+      if (code === 'auth/operation-not-allowed' || msg.includes('operation-not-allowed')) {
+        setShowProviderSetupHint(true);
+        setAuthError(
+          'Login dengan NIM & Kata sandi memerlukan aktivasi metode "Email/Password" di Firebase Console terlebih dahulu.'
+        );
+      } else if (
+        code === 'auth/invalid-credential' ||
+        code === 'auth/wrong-password' ||
+        code === 'auth/user-not-found' ||
+        msg.includes('invalid-credential')
+      ) {
+        setAuthError('NIM atau kata sandi salah. Jika belum memiliki akun, silakan klik Daftar Sekarang.');
+      } else if (code === 'auth/too-many-requests') {
+        setAuthError('Terlalu banyak percobaan masuk. Silakan tunggu beberapa saat lalu coba lagi.');
+      } else {
+        setAuthError(`Gagal masuk: ${msg}`);
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  // Handle NIM + Nama + Password Registration
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setShowProviderSetupHint(false);
+
+    const cleanedNim = regNim.trim().replace(/[^a-zA-Z0-9._-]/g, '');
+    const cleanedNama = regNama.trim();
+    if (cleanedNim.length < 3) {
+      setAuthError('NIM mahasiswa minimal 3 karakter (hanya huruf/angka/tanda hubung).');
+      return;
+    }
+    if (cleanedNama.length < 2) {
+      setAuthError('Mohon masukkan Nama Lengkap Anda.');
+      return;
+    }
+    if (regPassword.length < 6) {
+      setAuthError('Kata sandi minimal harus terdiri dari 6 karakter.');
+      return;
+    }
+
+    setIsSigningIn(true);
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, nimToAuthEmail(cleanedNim), regPassword);
+      await updateProfile(cred.user, { displayName: cleanedNama.slice(0, 120) });
+
+      const profileData = {
+        nim: regNim.trim().slice(0, 40),
+        nama: cleanedNama.slice(0, 120),
+      };
+      try {
+        await setDoc(doc(db, 'users', cred.user.uid), {
+          nim: profileData.nim,
+          nama: profileData.nama,
+          role: 'mahasiswa',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } catch (fsErr) {
+        handleFirestoreError(fsErr, OperationType.CREATE, `users/${cred.user.uid}`);
+      }
+
+      try {
+        localStorage.setItem(`kuliah_profile_${cred.user.uid}`, JSON.stringify(profileData));
+      } catch {
+        // ignore storage quota errors
+      }
+      setUserProfile(profileData);
+      setRegNim('');
+      setRegNama('');
+      setRegPassword('');
+      setAuthMode('login');
+      showToast(`Pendaftaran berhasil! Selamat datang, ${profileData.nama}.`, 'success');
+    } catch (error) {
+      const code = (error as { code?: string })?.code || '';
+      const msg = error instanceof Error ? error.message : 'Gagal mendaftar.';
+      if (code === 'auth/operation-not-allowed' || msg.includes('operation-not-allowed')) {
+        setShowProviderSetupHint(true);
+        setAuthError(
+          'Pendaftaran NIM & Kata sandi memerlukan aktivasi metode "Email/Password" di Firebase Console terlebih dahulu.'
+        );
+      } else if (code === 'auth/email-already-in-use' || msg.includes('email-already-in-use')) {
+        setAuthError('NIM ini sudah terdaftar. Silakan kembali ke halaman Login untuk masuk.');
+      } else if (code === 'auth/weak-password') {
+        setAuthError('Kata sandi terlalu lemah. Gunakan minimal 6 karakter.');
+      } else {
+        setAuthError(`Gagal mendaftar: ${msg}`);
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  // Google Sign-In Fallback / Admin Login
+  const handleGoogleSignIn = async () => {
+    setAuthError(null);
+    setShowProviderSetupHint(false);
+    setIsSigningIn(true);
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      showToast(`Berhasil masuk sebagai ${result.user.displayName || result.user.email}!`, 'success');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Gagal masuk dengan Google.';
+      if (msg.includes('unauthorized-domain')) {
+        setAuthError(
+          'Domain situs ini belum didaftarkan di Firebase Console (Authentication > Settings > Authorized domains).'
+        );
+      } else if (!msg.includes('popup-closed-by-user')) {
+        setAuthError(`Gagal masuk dengan Google: ${msg}`);
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      setUserProfile(null);
+      setSelectedMatkulId(null);
+      setActiveTab('dashboard');
+      setAuthMode('login');
+      setAuthError(null);
+      setShowProviderSetupHint(false);
+      showToast('Anda telah keluar dari akun.', 'info');
+    } catch {
+      showToast('Gagal keluar dari akun.', 'danger');
+    }
+  };
+
+  const requireSignedIn = (): FirebaseUser | null => {
+    return firebaseUser;
+  };
+
+  // Seed Sample Data to Cloud Firestore
+  const handleSeedSampleData = async () => {
+    const user = requireSignedIn();
+    if (!user) return;
+    setIsSeeding(true);
+    try {
+      const batch = writeBatch(db);
+      const ownerUid = user.uid;
+
+      const sampleMatkul = [
+        { id: 'mk_seed_1', nama_matkul: 'Pemrograman Web Lanjut', dosen_pengampu: 'Dr. Hendra Gunawan, M.T.', hari: 'Senin', jam: '08.00 - 10.30' },
+        { id: 'mk_seed_2', nama_matkul: 'Basis Data Relasional', dosen_pengampu: 'Siti Rahmawati, S.Kom., M.Cs.', hari: 'Selasa', jam: '13.00 - 15.30' },
+        { id: 'mk_seed_3', nama_matkul: 'Kecerdasan Buatan & ML', dosen_pengampu: 'Prof. Bambang Supriyadi, Ph.D.', hari: 'Rabu', jam: '10.00 - 12.30' },
+        { id: 'mk_seed_4', nama_matkul: 'Rekayasa Perangkat Lunak', dosen_pengampu: 'Ahmad Fauzi, M.Kom.', hari: 'Kamis', jam: '08.00 - 10.30' },
+      ];
+
+      for (const mk of sampleMatkul) {
+        batch.set(doc(db, 'matakuliah', mk.id), {
+          nama_matkul: mk.nama_matkul,
+          dosen_pengampu: mk.dosen_pengampu,
+          hari: mk.hari,
+          jam: mk.jam,
+          isPublic: true,
+          ownerUid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      const sampleMateri = [
+        { id: 'mat_seed_1', id_matkul: 'mk_seed_1', pertemuan: 1, judul_materi: 'Pengenalan Arsitektur MVC & Flask Framework', file_path: 'uploads/materi/pertemuan_1_mvc_flask.pdf' },
+        { id: 'mat_seed_2', id_matkul: 'mk_seed_1', pertemuan: 2, judul_materi: 'Routing, Template Jinja2, dan Form Handling', file_path: 'uploads/materi/pertemuan_2_jinja_routing.pdf' },
+        { id: 'mat_seed_3', id_matkul: 'mk_seed_2', pertemuan: 1, judul_materi: 'Normalisasi Basis Data 1NF sampai 3NF', file_path: 'uploads/materi/pertemuan_1_normalisasi_3nf.pdf' },
+        { id: 'mat_seed_4', id_matkul: 'mk_seed_3', pertemuan: 1, judul_materi: 'Dasar Machine Learning dan Supervised Algorithms', file_path: 'uploads/materi/pertemuan_1_intro_ml.pdf' },
+      ];
+
+      for (const m of sampleMateri) {
+        batch.set(doc(db, 'materi', m.id), {
+          id_matkul: m.id_matkul,
+          pertemuan: m.pertemuan,
+          judul_materi: m.judul_materi,
+          file_path: m.file_path,
+          file_id: '',
+          isPublic: true,
+          ownerUid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      const sampleTugas = [
+        {
+          id: 'tug_seed_1',
+          id_matkul: 'mk_seed_1',
+          nama_tugas: 'Tugas 1: Implementasi CRUD Flask & MySQL',
+          deskripsi: 'Buat antarmuka CRUD mahasiswa menggunakan Flask dan MySQL, lampirkan script SQL dan tangkapan layar endpoint.',
+          tenggat_waktu: getTomorrowDateStr(23, 59),
+          status: 'Proses',
+        },
+        {
+          id: 'tug_seed_2',
+          id_matkul: 'mk_seed_2',
+          nama_tugas: 'Tugas Desain ERD & Normalisasi Toko Online',
+          deskripsi: 'Rancang ERD sistem inventori dan lakukan normalisasi relasional minimal sampai bentuk 3NF.',
+          tenggat_waktu: getFutureDateStr(3, 17, 0),
+          status: 'Belum Dimulai',
+        },
+        {
+          id: 'tug_seed_3',
+          id_matkul: 'mk_seed_3',
+          nama_tugas: 'Praktikum Linear Regression dengan Scikit-Learn',
+          deskripsi: 'Eksplorasi dataset perumahan dan hitung metrik Mean Squared Error serta nilai R2 score.',
+          tenggat_waktu: getFutureDateStr(5, 23, 59),
+          status: 'Belum Dimulai',
+        },
+        {
+          id: 'tug_seed_4',
+          id_matkul: 'mk_seed_4',
+          nama_tugas: 'Dokumen Spesifikasi Kebutuhan Perangkat Lunak (SRS)',
+          deskripsi: 'Penyusunan dokumen SRS berstandar IEEE untuk sistem akademik.',
+          tenggat_waktu: getFutureDateStr(-2, 23, 59),
+          status: 'Selesai',
+          file_jawaban: 'uploads/tugas/srs_sistem_akademik_azlan.pdf',
+          catatan_jawaban: 'Dokumen final SRS telah lengkap dengan diagram use case.',
+        },
+        {
+          id: 'tug_seed_5',
+          id_matkul: 'mk_seed_2',
+          nama_tugas: 'Tugas Analisis Query & Relasi SQL Lanjutan',
+          deskripsi: 'Optimasi query JOIN dan pembuatan index pada tabel berskala besar.',
+          tenggat_waktu: getFutureDateStr(-1, 23, 59),
+          status: 'Belum Dimulai',
+        },
+      ];
+
+      for (const t of sampleTugas) {
+        batch.set(doc(db, 'tugas', t.id), {
+          id_matkul: t.id_matkul,
+          nama_tugas: t.nama_tugas,
+          deskripsi: t.deskripsi,
+          tenggat_waktu: t.tenggat_waktu,
+          status: t.status,
+          file_jawaban: t.file_jawaban || '',
+          file_id: '',
+          catatan_jawaban: t.catatan_jawaban || '',
+          submittedByUid: '',
+          submittedByName: '',
+          isPublic: true,
+          ownerUid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+      showToast('Data contoh berhasil dimuat ke database cloud!', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'batch_seed');
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
   // H-1 Banner Detection Logic
-  // Tenggat besok & status != 'Selesai'
-  // --------------------------------------------------------
   const tugasH1List = useMemo(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -325,11 +722,10 @@ export default function App() {
     });
   }, [tugasList]);
 
-  // Metrics Calculation (Melacak Total File dari Materi Perkuliahan & Berkas Tugas)
+  // Metrics Calculation
   const metrics = useMemo(() => {
     const fileMateriCount = materiList.filter((m) => Boolean(m.file_path)).length;
     const fileTugasCount = tugasList.filter((t) => Boolean(t.file_jawaban)).length;
-    // Tugas aktif adalah seluruh tugas yang belum mengunggah berkas jawaban (belum selesai)
     const activeTasksCount = tugasList.filter((t) => !t.file_jawaban).length;
     const overdueCount = tugasList.filter((t) => getAutomatedTaskStatus(t).label === 'Terlambat').length;
     return {
@@ -345,10 +741,9 @@ export default function App() {
   // Search state variables
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [globalSearchFocused, setGlobalSearchFocused] = useState(false);
-  const [globalSearchCategory, setGlobalSearchCategory] = useState<'all' | 'materi' | 'tugas' | 'matkul'>('all');
   const [detailSearchQuery, setDetailSearchQuery] = useState('');
 
-  // Active Tasks for Dashboard Table (Semua tugas yang belum selesai/belum ada berkas)
+  // Active Tasks for Dashboard Table
   const tugasAktifTable = useMemo(() => {
     return tugasList
       .filter((t) => !t.file_jawaban)
@@ -411,7 +806,7 @@ export default function App() {
     };
   }, [globalSearchQuery, matkulList, materiList, tugasList]);
 
-  // Derived state & memoized filtered lists for Selected Mata Kuliah (placed before any early returns)
+  // Derived state & memoized filtered lists for Selected Mata Kuliah
   const selectedMatkul = matkulList.find((m) => m.id_matkul === selectedMatkulId);
   const selectedMateriList = useMemo(
     () => materiList.filter((m) => m.id_matkul === selectedMatkulId).sort((a, b) => a.pertemuan - b.pertemuan),
@@ -425,14 +820,11 @@ export default function App() {
     [tugasList, selectedMatkulId]
   );
 
-  // Filtered lists for View 2 (Detail Kelas) by detailSearchQuery
   const filteredSelectedMateri = useMemo(() => {
     const q = detailSearchQuery.trim().toLowerCase();
     if (!q) return selectedMateriList;
     return selectedMateriList.filter(
-      (m) =>
-        m.judul_materi.toLowerCase().includes(q) ||
-        `pertemuan ${m.pertemuan}`.toLowerCase().includes(q)
+      (m) => m.judul_materi.toLowerCase().includes(q) || `pertemuan ${m.pertemuan}`.toLowerCase().includes(q)
     );
   }, [selectedMateriList, detailSearchQuery]);
 
@@ -447,14 +839,97 @@ export default function App() {
     );
   }, [selectedTugasList, detailSearchQuery]);
 
-  // Reset to initial seed
-  const handleResetData = () => {
-    if (confirm('Kembalikan seluruh data perkuliahan ke data contoh bawaan?')) {
-      setMatkulList(INITIAL_MATKUL);
-      setMateriList(INITIAL_MATERI);
-      setTugasList(getInitialTugas());
-      showToast('Data berhasil di-reset ke pengaturan awal.', 'info');
+  // Helper: valid PDF generator for seeded demo items without uploaded binary
+  const createSamplePdfBlob = (lines: string[]) => {
+    const sanitize = (str: string) =>
+      str.replace(/[^\x20-\x7E]/g, ' ').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+
+    const textOps = lines
+      .map((line, idx) => {
+        const y = 760 - idx * 20;
+        const size = idx === 0 ? 14 : 10;
+        return `BT /F1 ${size} Tf 50 ${y} Td (${sanitize(line)}) Tj ET`;
+      })
+      .join('\n');
+
+    const stream = `${textOps}\n`;
+    const objects = [
+      '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+      '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+      '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n',
+      `4 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}endstream\nendobj\n`,
+      '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+    ];
+
+    let pdf = '%PDF-1.4\n';
+    const offsets: number[] = [0];
+    for (const obj of objects) {
+      offsets.push(pdf.length);
+      pdf += obj;
     }
+    const xrefPos = pdf.length;
+    pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (let i = 1; i < offsets.length; i++) {
+      pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+    }
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`;
+    return new Blob([pdf], { type: 'application/pdf' });
+  };
+
+  // Real File Download Handler (Downloads cloud file from Firestore or fallback sample PDF)
+  const handleDownloadFile = async (
+    key: string,
+    filePath: string,
+    fileId?: string,
+    meta?: { title?: string; subtitle?: string; description?: string }
+  ) => {
+    const cleanFileName = filePath.split('/').pop() || 'berkas_perkuliahan.pdf';
+
+    if (fileId) {
+      setDownloadingKey(key);
+      try {
+        const { fileName, dataUrl } = await downloadFileFromFirestore(fileId);
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = fileName || cleanFileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showToast(`Berhasil mengunduh berkas: ${fileName || cleanFileName}`, 'success');
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Gagal mengunduh berkas dari cloud.';
+        showToast(msg, 'danger');
+      } finally {
+        setDownloadingKey(null);
+      }
+      return;
+    }
+
+    const isPdf = cleanFileName.toLowerCase().endsWith('.pdf');
+    const summaryLines = [
+      meta?.title || 'Dokumen Sistem Manajemen Perkuliahan',
+      meta?.subtitle || `Nama Berkas: ${cleanFileName}`,
+      '--------------------------------------------------',
+      meta?.description || 'Dokumen contoh bawaan sistem.',
+    ];
+
+    const blob = isPdf
+      ? createSamplePdfBlob(summaryLines)
+      : new Blob([summaryLines.join('\n')], { type: 'text/plain;charset=utf-8' });
+
+    const downloadName = isPdf
+      ? cleanFileName
+      : `${cleanFileName.replace(/\.[^/.]+$/, '')}_ringkasan.txt`;
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = downloadName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast(`Mengunduh berkas contoh: ${downloadName}`, 'success');
   };
 
   // Handlers for Kerjakan modal
@@ -463,350 +938,562 @@ export default function App() {
     setKerjakanStatus(task.status);
     setKerjakanCatatan(task.catatan_jawaban || '');
     setKerjakanFileName(task.file_jawaban ? task.file_jawaban.split('/').pop() || '' : '');
+    setKerjakanSelectedFile(null);
+    setKerjakanExistingFileId(task.file_id || '');
     setModalKerjakanOpen(true);
   };
 
-  const handleSaveKerjakan = (e: React.FormEvent) => {
+  const handleSaveKerjakan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeTaskForModal) return;
+    const user = requireSignedIn();
+    if (!user) return;
 
-    const hasUploadedFile = Boolean(kerjakanFileName.trim());
-    // Ketentuan otomatis: Tugas dinyatakan Selesai HANYA bila berkas jawaban diupload.
-    // Jika berkas jawaban belum diupload, status tidak bisa Selesai (tetap Belum Dimulai / Proses).
-    let resolvedStatus: 'Belum Dimulai' | 'Proses' | 'Selesai';
-    if (hasUploadedFile) {
-      resolvedStatus = 'Selesai';
-    } else {
-      resolvedStatus = kerjakanStatus === 'Selesai' ? 'Proses' : kerjakanStatus;
-    }
+    setIsSubmittingKerjakan(true);
+    try {
+      let finalFileId = kerjakanExistingFileId;
+      let finalFilePath = kerjakanFileName.trim()
+        ? kerjakanFileName.startsWith('uploads/')
+          ? kerjakanFileName.slice(0, 255)
+          : `uploads/tugas/${kerjakanFileName}`.slice(0, 255)
+        : '';
 
-    const savedFilePath = hasUploadedFile
-      ? (kerjakanFileName.startsWith('uploads/') ? kerjakanFileName : `uploads/tugas/${kerjakanFileName}`)
-      : '';
-
-    setTugasList((prev) =>
-      prev.map((t) => {
-        if (t.id_tugas === activeTaskForModal.id_tugas) {
-          return {
-            ...t,
-            status: resolvedStatus,
-            catatan_jawaban: kerjakanCatatan,
-            file_jawaban: savedFilePath,
-          };
+      if (kerjakanSelectedFile) {
+        const uploaded = await uploadFileToFirestore(kerjakanSelectedFile, user.uid);
+        if (kerjakanExistingFileId) {
+          await deleteFileFromFirestore(kerjakanExistingFileId);
         }
-        return t;
-      })
-    );
+        finalFileId = uploaded.fileId;
+        finalFilePath = `uploads/tugas/${uploaded.fileName}`.slice(0, 255);
+      } else if (!kerjakanFileName.trim() && kerjakanExistingFileId) {
+        await deleteFileFromFirestore(kerjakanExistingFileId);
+        finalFileId = '';
+        finalFilePath = '';
+      }
 
-    setModalKerjakanOpen(false);
-    if (hasUploadedFile) {
-      showToast(`Berkas jawaban berhasil diunggah! Tugas "${activeTaskForModal.nama_tugas}" otomatis berstatus Selesai.`, 'success');
-    } else {
-      showToast(`Progres tugas disimpan. Berkas belum diunggah sehingga tugas belum Selesai.`, 'info');
+      const hasUploadedFile = Boolean(finalFilePath);
+      const resolvedStatus: 'Belum Dimulai' | 'Proses' | 'Selesai' = hasUploadedFile
+        ? 'Selesai'
+        : kerjakanStatus === 'Selesai'
+        ? 'Proses'
+        : kerjakanStatus;
+
+      const taskPath = `tugas/${activeTaskForModal.id_tugas}`;
+      try {
+        await updateDoc(doc(db, 'tugas', activeTaskForModal.id_tugas), {
+          status: resolvedStatus,
+          file_jawaban: finalFilePath,
+          file_id: finalFileId,
+          catatan_jawaban: kerjakanCatatan.slice(0, 2000),
+          submittedByUid: user.uid,
+          submittedByName: (user.displayName || user.email || 'Mahasiswa').slice(0, 120),
+          updatedAt: serverTimestamp(),
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, taskPath);
+      }
+
+      setModalKerjakanOpen(false);
+      if (hasUploadedFile) {
+        showToast(
+          `Berkas jawaban diunggah ke cloud! Tugas "${activeTaskForModal.nama_tugas}" otomatis Selesai & bisa diunduh siapa saja.`,
+          'success'
+        );
+      } else {
+        showToast(`Progres tugas disimpan. Berkas belum diunggah sehingga tugas belum Selesai.`, 'info');
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Gagal menyimpan jawaban tugas.';
+      showToast(msg, 'danger');
+    } finally {
+      setIsSubmittingKerjakan(false);
     }
   };
 
   // Handlers for Matkul CRUD
-  const handleTambahMatkul = (e: React.FormEvent) => {
+  const handleTambahMatkul = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMatkul.nama_matkul || !newMatkul.dosen_pengampu) return;
-    const newId = matkulList.length > 0 ? Math.max(...matkulList.map((m) => m.id_matkul)) + 1 : 1;
-    setMatkulList((prev) => [...prev, { ...newMatkul, id_matkul: newId }]);
-    setNewMatkul({ nama_matkul: '', dosen_pengampu: '', hari: 'Senin', jam: '08.00 - 10.30' });
-    setModalTambahMatkulOpen(false);
-    showToast('Mata kuliah baru berhasil ditambahkan!', 'success');
+    const user = requireSignedIn();
+    if (!user) return;
+
+    const newId = generateDocId('mk');
+    const path = `matakuliah/${newId}`;
+    try {
+      await setDoc(doc(db, 'matakuliah', newId), {
+        nama_matkul: newMatkul.nama_matkul.trim().slice(0, 150),
+        dosen_pengampu: newMatkul.dosen_pengampu.trim().slice(0, 120),
+        hari: newMatkul.hari,
+        jam: newMatkul.jam.trim().slice(0, 40),
+        isPublic: true,
+        ownerUid: user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      setNewMatkul({ nama_matkul: '', dosen_pengampu: '', hari: 'Senin', jam: '08.00 - 10.30' });
+      setModalTambahMatkulOpen(false);
+      showToast('Mata kuliah baru berhasil disimpan ke database cloud!', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
   };
 
-  const handleSaveEditMatkul = (e: React.FormEvent) => {
+  const handleSaveEditMatkul = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMatkul) return;
-    setMatkulList((prev) => prev.map((m) => (m.id_matkul === editingMatkul.id_matkul ? editingMatkul : m)));
-    setModalEditMatkulOpen(false);
-    showToast('Data mata kuliah berhasil diperbarui!', 'success');
+    const user = requireSignedIn();
+    if (!user) return;
+
+    const path = `matakuliah/${editingMatkul.id_matkul}`;
+    try {
+      await updateDoc(doc(db, 'matakuliah', editingMatkul.id_matkul), {
+        nama_matkul: editingMatkul.nama_matkul.trim().slice(0, 150),
+        dosen_pengampu: editingMatkul.dosen_pengampu.trim().slice(0, 120),
+        hari: editingMatkul.hari,
+        jam: editingMatkul.jam.trim().slice(0, 40),
+        isPublic: true,
+        updatedAt: serverTimestamp(),
+      });
+      setModalEditMatkulOpen(false);
+      showToast('Data mata kuliah berhasil diperbarui!', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
   };
 
-  const handleConfirmHapusMatkul = () => {
+  const handleConfirmHapusMatkul = async () => {
     if (!deletingMatkul) return;
-    // Cascade delete materi & tugas
-    setMatkulList((prev) => prev.filter((m) => m.id_matkul !== deletingMatkul.id_matkul));
-    setMateriList((prev) => prev.filter((mat) => mat.id_matkul !== deletingMatkul.id_matkul));
-    setTugasList((prev) => prev.filter((t) => t.id_matkul !== deletingMatkul.id_matkul));
-    if (selectedMatkulId === deletingMatkul.id_matkul) {
-      setSelectedMatkulId(null);
+    const user = requireSignedIn();
+    if (!user) return;
+
+    const targetId = deletingMatkul.id_matkul;
+    const targetName = deletingMatkul.nama_matkul;
+    const relatedMateri = materiList.filter((m) => m.id_matkul === targetId);
+    const relatedTugas = tugasList.filter((t) => t.id_matkul === targetId);
+
+    try {
+      await Promise.all([
+        ...relatedMateri.map(async (m) => {
+          await deleteFileFromFirestore(m.file_id);
+          await deleteDoc(doc(db, 'materi', m.id_materi));
+        }),
+        ...relatedTugas.map(async (t) => {
+          await deleteFileFromFirestore(t.file_id);
+          await deleteDoc(doc(db, 'tugas', t.id_tugas));
+        }),
+      ]);
+      await deleteDoc(doc(db, 'matakuliah', targetId));
+
+      if (selectedMatkulId === targetId) {
+        setSelectedMatkulId(null);
+      }
+      setModalHapusMatkulOpen(false);
+      showToast(`Mata kuliah "${targetName}" beserta materi & tugas berhasil dihapus.`, 'info');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `matakuliah/${targetId}`);
     }
-    setModalHapusMatkulOpen(false);
-    showToast(`Mata kuliah "${deletingMatkul.nama_matkul}" beserta materi & tugas berhasil dihapus.`, 'info');
   };
 
   // Detail view handlers
-  const handleTambahMateri = (e: React.FormEvent) => {
+  const handleTambahMateri = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedMatkulId || !newMateri.judul_materi) return;
-    const newId = materiList.length > 0 ? Math.max(...materiList.map((m) => m.id_materi)) + 1 : 1;
-    const savedFileName = newMateri.fileName || `pertemuan_${newMateri.pertemuan}_${newMateri.judul_materi.toLowerCase().replace(/[^a-z0-9]/g, '_')}.pdf`;
-    setMateriList((prev) => [
-      ...prev,
-      {
-        id_materi: newId,
-        id_matkul: selectedMatkulId,
-        pertemuan: Number(newMateri.pertemuan),
-        judul_materi: newMateri.judul_materi,
-        file_path: `uploads/materi/${savedFileName}`,
-      },
-    ]);
-    setNewMateri({ pertemuan: 1, judul_materi: '', fileName: '' });
-    setModalUnggahMateriOpen(false);
-    showToast('Materi perkuliahan berhasil diunggah!', 'success');
-  };
+    const user = requireSignedIn();
+    if (!user) return;
 
-  const handleHapusMateri = (id_materi: number) => {
-    if (confirm('Hapus materi perkuliahan ini?')) {
-      setMateriList((prev) => prev.filter((m) => m.id_materi !== id_materi));
-      showToast('Materi berhasil dihapus.', 'info');
+    setIsSubmittingMateri(true);
+    try {
+      let fileId = '';
+      const savedFileName =
+        newMateri.fileName ||
+        `pertemuan_${newMateri.pertemuan}_${newMateri.judul_materi.toLowerCase().replace(/[^a-z0-9]/g, '_')}.pdf`;
+
+      if (newMateri.fileObj) {
+        const uploaded = await uploadFileToFirestore(newMateri.fileObj, user.uid);
+        fileId = uploaded.fileId;
+      }
+
+      const newId = generateDocId('mat');
+      try {
+        await setDoc(doc(db, 'materi', newId), {
+          id_matkul: selectedMatkulId,
+          pertemuan: Math.min(32, Math.max(1, Number(newMateri.pertemuan) || 1)),
+          judul_materi: newMateri.judul_materi.trim().slice(0, 200),
+          file_path: `uploads/materi/${savedFileName}`.slice(0, 255),
+          file_id: fileId,
+          isPublic: true,
+          ownerUid: user.uid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, `materi/${newId}`);
+      }
+
+      setNewMateri({ pertemuan: 1, judul_materi: '', fileName: '', fileObj: null });
+      setModalUnggahMateriOpen(false);
+      showToast('Materi perkuliahan berhasil diunggah ke cloud!', 'success');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Gagal mengunggah materi.';
+      showToast(msg, 'danger');
+    } finally {
+      setIsSubmittingMateri(false);
     }
   };
-  const handleTambahTugas = (e: React.FormEvent) => {
+
+  const handleHapusMateri = async (materi: Materi) => {
+    const user = requireSignedIn();
+    if (!user) return;
+    if (!confirm('Hapus materi perkuliahan ini?')) return;
+
+    try {
+      await deleteFileFromFirestore(materi.file_id);
+      await deleteDoc(doc(db, 'materi', materi.id_materi));
+      showToast('Materi berhasil dihapus.', 'info');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `materi/${materi.id_materi}`);
+    }
+  };
+
+  const handleTambahTugas = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedMatkulId || !newTugas.nama_tugas) return;
-    const newId = tugasList.length > 0 ? Math.max(...tugasList.map((t) => t.id_tugas)) + 1 : 1;
+    const user = requireSignedIn();
+    if (!user) return;
+
+    const newId = generateDocId('tug');
     const deadline = newTugas.tenggat_waktu.replace('T', ' ') || getFutureDateStr(2, 23, 59);
-    setTugasList((prev) => [
-      ...prev,
-      {
-        id_tugas: newId,
+    const formattedDeadline = (deadline.length === 16 ? `${deadline}:00` : deadline).slice(0, 40);
+
+    try {
+      await setDoc(doc(db, 'tugas', newId), {
         id_matkul: selectedMatkulId,
-        nama_tugas: newTugas.nama_tugas,
-        deskripsi: newTugas.deskripsi,
-        tenggat_waktu: deadline.length === 16 ? `${deadline}:00` : deadline,
-        status: 'Belum Dimulai', // Otomatis berstatus Belum Dikerjakan
-      },
-    ]);
-    setNewTugas({ nama_tugas: '', deskripsi: '', tenggat_waktu: '', status: 'Belum Dimulai' });
-    setModalTambahTugasOpen(false);
-    showToast('Tugas baru berhasil ditambahkan!', 'success');
+        nama_tugas: newTugas.nama_tugas.trim().slice(0, 200),
+        deskripsi: newTugas.deskripsi.trim().slice(0, 2000),
+        tenggat_waktu: formattedDeadline,
+        status: 'Belum Dimulai',
+        file_jawaban: '',
+        file_id: '',
+        catatan_jawaban: '',
+        submittedByUid: '',
+        submittedByName: '',
+        isPublic: true,
+        ownerUid: user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      setNewTugas({ nama_tugas: '', deskripsi: '', tenggat_waktu: '' });
+      setModalTambahTugasOpen(false);
+      showToast('Tugas baru berhasil disimpan! Status otomatis: Belum Dikerjakan.', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `tugas/${newId}`);
+    }
   };
 
-  const handleHapusTugas = (id_tugas: number) => {
-    if (confirm('Hapus tugas ini?')) {
-      setTugasList((prev) => prev.filter((t) => t.id_tugas !== id_tugas));
+  const handleHapusTugas = async (tugas: Tugas) => {
+    const user = requireSignedIn();
+    if (!user) return;
+    if (!confirm('Hapus tugas ini?')) return;
+
+    try {
+      await deleteFileFromFirestore(tugas.file_id);
+      await deleteDoc(doc(db, 'tugas', tugas.id_tugas));
       showToast('Tugas berhasil dihapus.', 'info');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `tugas/${tugas.id_tugas}`);
     }
   };
 
-  // Auth Handlers
-  const handleLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!loginNim || !loginPass) {
-      setAuthError('NIM dan Password wajib diisi.');
-      return;
-    }
-    // Demo accept
-    setCurrentUser({
-      nim: loginNim,
-      nama: loginNim === '240511200' ? 'Muhamad Azlan Farizki' : 'Mahasiswa Terdaftar',
-    });
-    setIsLoggedIn(true);
-    setAuthError(null);
-    showToast(`Selamat datang, ${loginNim === '240511200' ? 'Muhamad Azlan Farizki' : 'Mahasiswa'}!`, 'success');
-  };
-
-  const handleRegisterSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!regNim || !regNama || !regPass) {
-      setAuthError('Semua kolom registrasi wajib diisi.');
-      return;
-    }
-    setCurrentUser({ nim: regNim, nama: regNama });
-    setIsLoggedIn(true);
-    setAuthError(null);
-    showToast(`Registrasi akun berhasil! Selamat datang, ${regNama}.`, 'success');
-  };
+  // Display user info in header
+  const displayName = userProfile?.nama || firebaseUser?.displayName || firebaseUser?.email || 'Mahasiswa';
+  const displaySub = userProfile?.nim
+    ? userProfile.nim
+    : firebaseUser?.email?.endsWith('@kuliahapp.id')
+    ? firebaseUser.email.replace('@kuliahapp.id', '')
+    : firebaseUser?.email || 'Terhubung ke Cloud';
+  const displayInitial = displayName.trim().substring(0, 2).toUpperCase() || 'MH';
 
   // ==========================================
-  // RENDER: LOGIN & REGISTRASI (PAGE 1)
+  // GATE 1: CHECKING AUTH SESSION
   // ==========================================
-  if (!isLoggedIn) {
+  if (!isAuthReady) {
     return (
-      <div className="min-h-screen flex flex-col justify-center items-center p-4 bg-[#F8FAFC]">
-        <div className="w-full max-w-md">
-          {/* Header */}
-          <div className="text-center mb-6">
-            <div className="inline-flex w-12 h-12 rounded-2xl bg-[#2563EB] text-white items-center justify-center shadow-md mb-3">
-              <GraduationCap className="w-6 h-6" />
-            </div>
-            <h1 className="text-2xl font-bold text-[#1E293B] tracking-tight">Portal Perkuliahan</h1>
-            <p className="text-sm text-[#64748B] mt-1">Sistem Manajemen Tugas & Materi Mahasiswa</p>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F8FAFC] px-4">
+        <div className="w-14 h-14 rounded-2xl bg-[#2563EB] text-white flex items-center justify-center shadow-lg shadow-blue-500/20 mb-4">
+          <GraduationCap className="w-7 h-7" />
+        </div>
+        <Loader2 className="w-6 h-6 text-[#2563EB] animate-spin mb-2" />
+        <p className="text-xs font-medium text-slate-500">Memeriksa sesi masuk...</p>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // GATE 2: PORTAL PERKULIAHAN — LOGIN & REGISTRASI AKUN
+  // ==========================================
+  if (!firebaseUser) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F8FAFC] text-slate-700 px-4 py-10">
+        {/* Centered Portal Brand Header */}
+        <div className="text-center mb-7">
+          <div className="w-14 h-14 rounded-2xl bg-[#2563EB] text-white flex items-center justify-center shadow-lg shadow-blue-600/25 mx-auto mb-4">
+            <GraduationCap className="w-7 h-7" />
           </div>
+          <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Portal Perkuliahan</h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
+            Sistem Manajemen Tugas &amp; Materi Mahasiswa
+          </p>
+        </div>
 
-          {/* Toast / Error */}
-          {authError && (
-            <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center justify-between">
-              <span>{authError}</span>
-              <button onClick={() => setAuthError(null)} className="text-rose-500 font-bold ml-2">✕</button>
-            </div>
-          )}
+        {/* Auth Card */}
+        <div className="w-full max-w-[430px]">
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 sm:p-8">
+            {authMode === 'login' ? (
+              <div>
+                <h2 className="text-lg font-bold text-[#0F172A] pb-4 mb-5 border-b border-slate-100">
+                  Masuk Akun
+                </h2>
 
-          {/* FLIP CARD CONTAINER */}
-          <div className="relative w-full [perspective:1000px] min-h-[460px]">
-            <div
-              className={`relative w-full transition-transform duration-500 [transform-style:preserve-3d] ${
-                isRegisterFlipped ? '[transform:rotateY(180deg)]' : ''
-              }`}
-            >
-              {/* FRONT: LOGIN */}
-              <div className="w-full [backface-visibility:hidden] bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 sm:p-8 flex flex-col justify-between">
-                <div>
-                  <div className="pb-4 border-b border-slate-100 mb-6">
-                    <h2 className="text-lg font-bold text-[#1E293B]">Masuk Akun</h2>
+                {authError && (
+                  <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <span>{authError}</span>
+                    </div>
+                    {showProviderSetupHint && (
+                      <div className="pt-2 border-t border-rose-200/80 flex flex-col gap-2">
+                        <p className="text-[11px] text-rose-800">
+                          Buka <strong>Firebase Console &gt; Authentication &gt; Sign-in method</strong> lalu aktifkan{' '}
+                          <strong>Email/Password</strong>, atau masuk menggunakan Google di bawah:
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleGoogleSignIn}
+                          disabled={isSigningIn}
+                          className="w-full py-2 px-3 bg-white border border-rose-300 hover:bg-rose-100/60 text-rose-800 font-semibold rounded-lg text-xs flex items-center justify-center gap-1.5 transition"
+                        >
+                          <LogIn className="w-3.5 h-3.5" />
+                          <span>Masuk dengan Google</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <form onSubmit={handleLoginSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Nomor Induk Mahasiswa (NIM)
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
+                      <input
+                        type="text"
+                        required
+                        value={loginNim}
+                        onChange={(e) => setLoginNim(e.target.value)}
+                        placeholder="240511200"
+                        className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-slate-50/70 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-[#2563EB] transition"
+                      />
+                    </div>
                   </div>
 
-                  <form onSubmit={handleLoginSubmit} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">Nomor Induk Mahasiswa (NIM)</label>
-                      <div className="relative">
-                        <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                        <input
-                          type="text"
-                          required
-                          value={loginNim}
-                          onChange={(e) => setLoginNim(e.target.value)}
-                          placeholder="240511200"
-                          className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
-                        />
-                      </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Kata sandi
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
+                      <input
+                        type="password"
+                        required
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-slate-50/70 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-[#2563EB] transition"
+                      />
                     </div>
+                  </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">Password</label>
-                      <div className="relative">
-                        <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                        <input
-                          type="password"
-                          required
-                          value={loginPass}
-                          onChange={(e) => setLoginPass(e.target.value)}
-                          placeholder="••••••••"
-                          className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
-                        />
-                      </div>
-                    </div>
+                  <button
+                    type="submit"
+                    disabled={isSigningIn}
+                    className="w-full mt-2 py-3 px-4 bg-[#2563EB] hover:bg-blue-700 text-white text-sm font-semibold rounded-xl shadow-xs flex items-center justify-center gap-2 transition disabled:opacity-60"
+                  >
+                    {isSigningIn ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <span>Masuk ke Dashboard</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
 
-                    <button
-                      type="submit"
-                      className="w-full py-2.5 px-4 bg-[#2563EB] hover:bg-blue-700 text-white font-semibold text-sm rounded-xl shadow-sm transition flex items-center justify-center space-x-2 mt-2"
-                    >
-                      <span>Masuk ke Dashboard</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  </form>
-                </div>
-
-                <div className="pt-6 border-t border-slate-100 text-center mt-6">
-                  <p className="text-xs text-[#64748B]">
+                <div className="mt-6 pt-5 border-t border-slate-100 text-center">
+                  <p className="text-xs text-slate-500">
                     Belum memiliki akun terdaftar?{' '}
                     <button
                       type="button"
-                      onClick={() => setIsRegisterFlipped(true)}
-                      className="font-semibold text-[#2563EB] hover:underline inline-flex items-center ml-1"
+                      onClick={() => {
+                        setAuthMode('register');
+                        setAuthError(null);
+                        setShowProviderSetupHint(false);
+                      }}
+                      className="text-[#2563EB] font-semibold hover:underline inline-flex items-center gap-1"
                     >
-                      Daftar Sekarang &rarr;
+                      <span>Daftar Sekarang</span>
+                      <ArrowRight className="w-3 h-3" />
                     </button>
                   </p>
                 </div>
               </div>
+            ) : (
+              <div>
+                <h2 className="text-lg font-bold text-[#0F172A] pb-4 mb-5 border-b border-slate-100">
+                  Registrasi Akun
+                </h2>
 
-              {/* BACK: REGISTRASI */}
-              <div className="absolute inset-0 w-full [backface-visibility:hidden] [transform:rotateY(180deg)] bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 sm:p-8 flex flex-col justify-between">
-                <div>
-                  <div className="pb-4 border-b border-slate-100 mb-6">
-                    <h2 className="text-lg font-bold text-[#1E293B]">Registrasi Akun</h2>
+                {authError && (
+                  <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <span>{authError}</span>
+                    </div>
+                    {showProviderSetupHint && (
+                      <div className="pt-2 border-t border-rose-200/80 flex flex-col gap-2">
+                        <p className="text-[11px] text-rose-800">
+                          Buka <strong>Firebase Console &gt; Authentication &gt; Sign-in method</strong> lalu aktifkan{' '}
+                          <strong>Email/Password</strong>, atau masuk menggunakan Google di bawah:
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleGoogleSignIn}
+                          disabled={isSigningIn}
+                          className="w-full py-2 px-3 bg-white border border-rose-300 hover:bg-rose-100/60 text-rose-800 font-semibold rounded-lg text-xs flex items-center justify-center gap-1.5 transition"
+                        >
+                          <LogIn className="w-3.5 h-3.5" />
+                          <span>Masuk dengan Google</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <form onSubmit={handleRegisterSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      NIM Mahasiswa
+                    </label>
+                    <div className="relative">
+                      <IdCard className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
+                      <input
+                        type="text"
+                        required
+                        value={regNim}
+                        onChange={(e) => setRegNim(e.target.value)}
+                        placeholder="Contoh: 240511200"
+                        className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-slate-50/70 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-[#2563EB] transition"
+                      />
+                    </div>
                   </div>
 
-                  <form onSubmit={handleRegisterSubmit} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">NIM Mahasiswa</label>
-                      <div className="relative">
-                        <IdCard className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                        <input
-                          type="text"
-                          required
-                          value={regNim}
-                          onChange={(e) => setRegNim(e.target.value)}
-                          placeholder="Contoh: 240511200"
-                          className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
-                        />
-                      </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Nama Lengkap
+                    </label>
+                    <div className="relative">
+                      <UserCheck className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
+                      <input
+                        type="text"
+                        required
+                        value={regNama}
+                        onChange={(e) => setRegNama(e.target.value)}
+                        placeholder="Muhammad Azlan Farizki"
+                        className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-slate-50/70 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-[#2563EB] transition"
+                      />
                     </div>
+                  </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">Nama Lengkap</label>
-                      <div className="relative">
-                        <UserCheck className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                        <input
-                          type="text"
-                          required
-                          value={regNama}
-                          onChange={(e) => setRegNama(e.target.value)}
-                          placeholder="Muhamad Azlan Farizki"
-                          className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
-                        />
-                      </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Kata sandi
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
+                      <input
+                        type="password"
+                        required
+                        minLength={6}
+                        value={regPassword}
+                        onChange={(e) => setRegPassword(e.target.value)}
+                        placeholder="Minimal 6 karakter"
+                        className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-slate-50/70 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-[#2563EB] transition"
+                      />
                     </div>
+                  </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">Password</label>
-                      <div className="relative">
-                        <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                        <input
-                          type="password"
-                          required
-                          value={regPass}
-                          onChange={(e) => setRegPass(e.target.value)}
-                          placeholder="Minimal 6 karakter"
-                          className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      className="w-full py-2.5 px-4 bg-[#2563EB] hover:bg-blue-700 text-white font-semibold text-sm rounded-xl shadow-sm transition flex items-center justify-center space-x-2 mt-2"
-                    >
-                      <span>Daftar Akun Mahasiswa</span>
-                      <Check className="w-4 h-4" />
-                    </button>
-                  </form>
-                </div>
-
-                <div className="pt-6 border-t border-slate-100 text-center mt-6">
-                  <p className="text-xs text-[#64748B]">
-                    Sudah mempunyai akun?{' '}
-                    <button
-                      type="button"
-                      onClick={() => setIsRegisterFlipped(false)}
-                      className="font-semibold text-[#2563EB] hover:underline inline-flex items-center ml-1"
-                    >
-                      &larr; Kembali ke Login
-                    </button>
-                  </p>
-                </div>
+                  <button
+                    type="submit"
+                    disabled={isSigningIn}
+                    className="w-full mt-2 py-3 px-4 bg-[#2563EB] hover:bg-blue-700 text-white text-sm font-semibold rounded-xl shadow-xs flex items-center justify-center gap-2 transition disabled:opacity-60"
+                  >
+                    {isSigningIn ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <span>Daftar Akun Mahasiswa</span>
+                        <Check className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
               </div>
-            </div>
+            )}
           </div>
 
+          {authMode === 'register' && (
+            <div className="mt-5 text-center">
+              <p className="text-xs text-slate-500">
+                Sudah punya akun?{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('login');
+                    setAuthError(null);
+                    setShowProviderSetupHint(false);
+                  }}
+                  className="text-[#2563EB] font-semibold hover:underline inline-flex items-center gap-1"
+                >
+                  <ArrowLeft className="w-3 h-3" />
+                  <span>Kembali ke Login</span>
+                </button>
+              </p>
+            </div>
+          )}
+
+          <div className="mt-5 text-center">
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={isSigningIn}
+              className="text-[11px] font-medium text-slate-400 hover:text-[#2563EB] transition"
+            >
+              Atau masuk menggunakan akun Google
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   // ==========================================
-  // RENDER: MAIN APPLICATION (PAGES 2 & 3)
+  // RENDER: MAIN APPLICATION
   // ==========================================
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-[#64748B]">
-      {/* ======================================================== */}
-      {/* TOP NAVIGATION BAR (Warna Primary Biru Solid #2563EB) */}
-      {/* ======================================================== */}
+      {/* TOP NAVIGATION BAR */}
       <header className="bg-[#2563EB] text-white border-b border-blue-700 sticky top-0 z-30 shadow-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between text-white">
           {/* Logo & App Name */}
@@ -890,13 +1577,12 @@ export default function App() {
             {/* Dropdown Live Results */}
             {globalSearchFocused && globalSearchQuery.trim().length > 0 && (
               <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setGlobalSearchFocused(false)}
-                />
+                <div className="fixed inset-0 z-40" onClick={() => setGlobalSearchFocused(false)} />
                 <div className="absolute left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden max-h-96 flex flex-col text-slate-800 animate-in fade-in zoom-in-95 duration-100">
                   <div className="p-2.5 border-b border-slate-100 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
-                    <span>Hasil Pencarian: <strong>{globalSearchResults.totalCount}</strong> ditemukan</span>
+                    <span>
+                      Hasil Pencarian: <strong>{globalSearchResults.totalCount}</strong> ditemukan
+                    </span>
                     <button
                       onClick={() => setGlobalSearchFocused(false)}
                       className="text-slate-400 hover:text-slate-600 font-bold px-1"
@@ -906,7 +1592,6 @@ export default function App() {
                   </div>
 
                   <div className="p-2 overflow-y-auto space-y-3 max-h-80 text-xs">
-                    {/* Hasil Tugas */}
                     {globalSearchResults.tugas.length > 0 && (
                       <div>
                         <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 flex items-center gap-1">
@@ -925,8 +1610,12 @@ export default function App() {
                               className="w-full text-left p-2 rounded-lg hover:bg-blue-50/80 transition flex items-center justify-between group"
                             >
                               <div className="truncate pr-2">
-                                <div className="font-semibold text-slate-800 group-hover:text-blue-600 truncate">{t.nama_tugas}</div>
-                                <div className="text-[11px] text-slate-400 truncate">{t.matkulNama} &middot; Tenggat: {t.tenggat_waktu}</div>
+                                <div className="font-semibold text-slate-800 group-hover:text-blue-600 truncate">
+                                  {t.nama_tugas}
+                                </div>
+                                <div className="text-[11px] text-slate-400 truncate">
+                                  {t.matkulNama} &middot; Tenggat: {t.tenggat_waktu}
+                                </div>
                               </div>
                               <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-700">
                                 Kerjakan &rarr;
@@ -937,7 +1626,6 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Hasil Materi */}
                     {globalSearchResults.materi.length > 0 && (
                       <div>
                         <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 flex items-center gap-1">
@@ -958,8 +1646,12 @@ export default function App() {
                               className="w-full text-left p-2 rounded-lg hover:bg-emerald-50/80 transition flex items-center justify-between group"
                             >
                               <div className="truncate pr-2">
-                                <div className="font-semibold text-slate-800 group-hover:text-emerald-700 truncate">{m.judul_materi}</div>
-                                <div className="text-[11px] text-slate-400 truncate">{m.matkulNama} &middot; Pertemuan {m.pertemuan}</div>
+                                <div className="font-semibold text-slate-800 group-hover:text-emerald-700 truncate">
+                                  {m.judul_materi}
+                                </div>
+                                <div className="text-[11px] text-slate-400 truncate">
+                                  {m.matkulNama} &middot; Pertemuan {m.pertemuan}
+                                </div>
                               </div>
                               <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
                                 Buka Modul &rarr;
@@ -970,7 +1662,6 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Hasil Mata Kuliah */}
                     {globalSearchResults.matkul.length > 0 && (
                       <div>
                         <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 flex items-center gap-1">
@@ -990,8 +1681,12 @@ export default function App() {
                               className="w-full text-left p-2 rounded-lg hover:bg-purple-50/80 transition flex items-center justify-between group"
                             >
                               <div className="truncate pr-2">
-                                <div className="font-semibold text-slate-800 group-hover:text-purple-700 truncate">{mk.nama_matkul}</div>
-                                <div className="text-[11px] text-slate-400 truncate">{mk.dosen_pengampu} &middot; {mk.hari}, {mk.jam}</div>
+                                <div className="font-semibold text-slate-800 group-hover:text-purple-700 truncate">
+                                  {mk.nama_matkul}
+                                </div>
+                                <div className="text-[11px] text-slate-400 truncate">
+                                  {mk.dosen_pengampu} &middot; {mk.hari}, {mk.jam}
+                                </div>
                               </div>
                               <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded bg-purple-100 text-purple-800">
                                 Masuk Kelas &rarr;
@@ -1013,29 +1708,24 @@ export default function App() {
             )}
           </div>
 
-          {/* Profil Statis di Sudut Kanan Atas */}
+          {/* Profil & Google Auth di Sudut Kanan Atas */}
           <div className="flex items-center space-x-3">
             <div className="text-right hidden sm:block">
-              <div className="text-xs font-semibold text-white leading-tight">
-                {currentUser.nama}
-              </div>
-              <div className="text-[11px] text-blue-200 font-mono">
-                {currentUser.nim}
-              </div>
+              <div className="text-xs font-semibold text-white leading-tight">{displayName}</div>
+              <div className="text-[11px] text-blue-200 truncate max-w-[180px]">{displaySub}</div>
             </div>
             <div className="w-9 h-9 rounded-full bg-white text-[#2563EB] font-bold text-xs uppercase shadow-xs flex items-center justify-center">
-              {currentUser.nama.substring(0, 2)}
+              {displayInitial}
             </div>
             <button
-              onClick={() => {
-                setIsLoggedIn(false);
-                showToast('Anda telah keluar dari sistem.', 'info');
-              }}
-              title="Keluar"
-              className="p-2 text-blue-200 hover:text-white hover:bg-blue-700/60 rounded-lg transition-colors"
+              onClick={handleSignOut}
+              title="Keluar Akun"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-blue-100 hover:text-white hover:bg-blue-700/60 rounded-lg transition-colors"
             >
               <LogOut className="w-4 h-4" />
+              <span className="hidden lg:inline">Keluar</span>
             </button>
+
             {/* Mobile menu toggle */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -1088,7 +1778,9 @@ export default function App() {
             }`}
           >
             <span>{toastMsg.text}</span>
-            <button onClick={() => setToastMsg(null)} className="text-slate-400 hover:text-slate-700">✕</button>
+            <button onClick={() => setToastMsg(null)} className="text-slate-400 hover:text-slate-700">
+              ✕
+            </button>
           </div>
         </div>
       )}
@@ -1097,591 +1789,695 @@ export default function App() {
       {/* MAIN CONTAINER */}
       {/* ======================================================== */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        
-        {/* TAB 1: DASHBOARD UTAMA */}
-        {activeTab === 'dashboard' && (
-          <div className="space-y-6">
-            
-            {/* 1. BANNER NOTIFIKASI H-1 (Hanya muncul jika tenggat besok & status != Selesai) */}
-            {tugasH1List.length > 0 && (
-              <div className="rounded-xl border border-[#FDA4AF] bg-[#FFE4E6] p-4 text-[#9F1239] shadow-xs">
-                <div className="flex items-start sm:items-center justify-between flex-col sm:flex-row gap-3">
-                  <div className="flex items-start sm:items-center space-x-3">
-                    <div className="w-9 h-9 rounded-lg bg-rose-200/80 flex items-center justify-center shrink-0 text-rose-800">
-                      <AlertCircle className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-rose-200 text-rose-900">
-                          Perhatian H-1
-                        </span>
-                        <span className="text-xs font-medium text-rose-800">Tenggat Waktu Besok!</span>
-                      </div>
-                      <p className="text-sm font-semibold text-rose-950 mt-0.5">
-                        Terdapat {tugasH1List.length} tugas aktif yang harus diselesaikan esok hari:{' '}
-                        <span className="underline decoration-rose-400">
-                          {tugasH1List.map((t) => `"${t.nama_tugas}"`).join(', ')}
-                        </span>
-                      </p>
-                    </div>
+        {isLoadingCloud ? (
+          <div className="py-20 text-center">
+            <Loader2 className="w-8 h-8 text-[#2563EB] animate-spin mx-auto mb-3" />
+            <p className="text-sm font-medium text-slate-600">Menghubungkan ke database cloud...</p>
+          </div>
+        ) : (
+          <>
+            {/* Empty Cloud Prompt Banner (Only when Firestore is completely empty) */}
+            {matkulList.length === 0 && (
+              <div className="mb-6 bg-white border border-blue-200 rounded-xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                    <Cloud className="w-5 h-5" />
                   </div>
-                  <div className="flex items-center space-x-2 self-end sm:self-center">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenKerjakan(tugasH1List[0])}
-                      className="px-3.5 py-1.5 bg-rose-700 hover:bg-rose-800 text-white font-medium text-xs rounded-lg shadow-xs transition"
-                    >
-                      Kerjakan Sekarang
-                    </button>
+                  <div>
+                    <h3 className="text-sm font-bold text-[#1E293B]">Database Cloud Siap Digunakan</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Belum ada mata kuliah tersimpan di cloud. Anda dapat memuat data contoh atau menambah mata kuliah baru agar tampil seragam untuk semua pengunjung & dosen.
+                    </p>
                   </div>
+                </div>
+                <div className="flex items-center space-x-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleSeedSampleData}
+                    disabled={isSeeding}
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-lg transition disabled:opacity-60"
+                  >
+                    {isSeeding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-500" />}
+                    <span>Muat Data Contoh</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!requireSignedIn()) return;
+                      setActiveTab('matakuliah');
+                      setModalTambahMatkulOpen(true);
+                    }}
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-[#2563EB] hover:bg-blue-700 text-white font-semibold text-xs rounded-lg shadow-xs transition"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    <span>Tambah Mata Kuliah</span>
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* 2. KARTU METRIK: 3 Berjejer (Horizontal di PC, Vertikal di HP) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
-              {/* Kartu 1: Total File (Tracking Materi & Berkas Tugas) */}
-              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-blue-300 transition-all">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Total File</p>
-                    <h3 className="text-2xl sm:text-3xl font-bold text-[#1E293B] mt-1">{metrics.totalFile}</h3>
-                    <p className="text-[11px] text-blue-600 font-medium mt-1">
-                      {metrics.fileMateriCount} Materi &bull; {metrics.fileTugasCount} Tugas
-                    </p>
-                  </div>
-                  <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                    <Files className="w-6 h-6" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Kartu 2: Tugas Aktif */}
-              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-amber-300 transition-all">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Tugas Aktif</p>
-                    <h3 className="text-2xl sm:text-3xl font-bold text-[#1E293B] mt-1">{metrics.tugasAktif}</h3>
-                    <p className="text-[11px] text-amber-600 font-medium mt-1">
-                      {metrics.overdueCount > 0 ? `${metrics.overdueCount} Terlambat &bull; ` : ''}Belum Selesai
-                    </p>
-                  </div>
-                  <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                    <Clock className="w-6 h-6" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Kartu 3: Total Materi */}
-              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-emerald-300 transition-all sm:col-span-2 md:col-span-1">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Total Materi</p>
-                    <h3 className="text-2xl sm:text-3xl font-bold text-[#1E293B] mt-1">{metrics.totalMateri}</h3>
-                    <p className="text-[11px] text-emerald-600 font-medium mt-1">Dokumen & modul perkuliahan</p>
-                  </div>
-                  <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                    <BookMarked className="w-6 h-6" />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 3. TABEL TUGAS AKTIF: Kolom Aksi dengan Tombol Biru "Kerjakan" (Tanpa kolom teks status) */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-              <div className="p-5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <h2 className="text-lg font-bold text-[#1E293B] tracking-tight">Daftar Tugas Aktif</h2>
-                  <p className="text-xs text-slate-500">Tugas perkuliahan yang perlu dikerjakan atau diselesaikan</p>
-                </div>
-              </div>
-
-              {tugasAktifTable.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-sm">
-                    <thead>
-                      <tr className="bg-slate-50/80 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                        <th className="py-3.5 px-4 sm:px-6">Mata Kuliah</th>
-                        <th className="py-3.5 px-4 sm:px-6">Nama Tugas & Deskripsi</th>
-                        <th className="py-3.5 px-4 sm:px-6">Tenggat Waktu</th>
-                        <th className="py-3.5 px-4 sm:px-6 text-right">Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {tugasAktifTable.map((t) => (
-                        <tr key={t.id_tugas} className="hover:bg-slate-50/60 transition-colors">
-                          {/* Mata Kuliah */}
-                          <td className="py-4 px-4 sm:px-6 align-top">
-                            <span className="font-semibold text-slate-900 block">{t.nama_matkul}</span>
-                            <span className="text-xs text-slate-400 block">{t.dosen_pengampu}</span>
-                          </td>
-
-                          {/* Nama Tugas & Deskripsi */}
-                          <td className="py-4 px-4 sm:px-6 align-top max-w-md">
-                            <div className="font-semibold text-slate-900">{t.nama_tugas}</div>
-                            <div className="text-xs text-slate-500 line-clamp-2 mt-0.5">
-                              {t.deskripsi || 'Tidak ada deskripsi rinci.'}
-                            </div>
-                          </td>
-
-                          {/* Tenggat Waktu & Status Otomatis */}
-                          <td className="py-4 px-4 sm:px-6 align-top whitespace-nowrap">
-                            <div className="text-xs font-medium text-slate-800 flex items-center gap-1.5">
-                              <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                              <span>{t.tenggat_waktu}</span>
-                            </div>
-                            {t.autoStatus.label === 'Terlambat' ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 mt-1">
-                                <AlertTriangle className="w-3 h-3 text-rose-600" />
-                                Terlambat
-                              </span>
-                            ) : t.autoStatus.label === 'Proses' ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 mt-1">
-                                &bull; Sedang Dikerjakan
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 mt-1">
-                                &bull; Belum Dikerjakan
-                              </span>
-                            )}
-                          </td>
-
-                          {/* Aksi: Tombol Biru "Kerjakan" */}
-                          <td className="py-4 px-4 sm:px-6 align-top text-right whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenKerjakan(t)}
-                              className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-[#2563EB] hover:bg-blue-700 text-white font-semibold text-xs rounded-lg shadow-xs transition active:scale-95"
-                            >
-                              <PenTool className="w-3.5 h-3.5" />
-                              <span>Kerjakan</span>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="text-center py-12 px-4">
-                  <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
-                    <CheckCircle className="w-6 h-6" />
-                  </div>
-                  <h4 className="text-base font-semibold text-slate-800">Semua Tugas Telah Selesai!</h4>
-                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                    Tidak ada tugas yang menunggu pengerjaan saat ini. Kerja bagus!
-                  </p>
-                </div>
-              )}
-            </div>
-
-          </div>
-        )}
-
-        {/* TAB 2: MANAJEMEN MATA KULIAH (VIEW 1 DAFTAR & VIEW 2 DETAIL) */}
-        {activeTab === 'matakuliah' && (
-          <div>
-            {!selectedMatkulId ? (
-              /* VIEW 1: DAFTAR KELAS */
+            {/* TAB 1: DASHBOARD UTAMA */}
+            {activeTab === 'dashboard' && (
               <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
-                  <div>
-                    <h1 className="text-2xl font-bold text-[#1E293B] tracking-tight">Manajemen Mata Kuliah</h1>
-                    <p className="text-xs text-slate-500 mt-1">Kelola kelas, jadwal kuliah, materi perkuliahan, dan tugas</p>
+                {/* 1. BANNER NOTIFIKASI H-1 */}
+                {tugasH1List.length > 0 && (
+                  <div className="rounded-xl border border-[#FDA4AF] bg-[#FFE4E6] p-4 text-[#9F1239] shadow-xs">
+                    <div className="flex items-start sm:items-center justify-between flex-col sm:flex-row gap-3">
+                      <div className="flex items-start sm:items-center space-x-3">
+                        <div className="w-9 h-9 rounded-lg bg-rose-200/80 flex items-center justify-center shrink-0 text-rose-800">
+                          <AlertCircle className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-rose-200 text-rose-900">
+                              Perhatian H-1
+                            </span>
+                            <span className="text-xs font-medium text-rose-800">Tenggat Waktu Besok!</span>
+                          </div>
+                          <p className="text-sm font-semibold text-rose-950 mt-0.5">
+                            Terdapat {tugasH1List.length} tugas aktif yang harus diselesaikan esok hari:{' '}
+                            <span className="underline decoration-rose-400">
+                              {tugasH1List.map((t) => `"${t.nama_tugas}"`).join(', ')}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2 self-end sm:self-center">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenKerjakan(tugasH1List[0])}
+                          className="px-3.5 py-1.5 bg-rose-700 hover:bg-rose-800 text-white font-medium text-xs rounded-lg shadow-xs transition"
+                        >
+                          Kerjakan Sekarang
+                        </button>
+                      </div>
+                    </div>
                   </div>
+                )}
+
+                {/* 2. KARTU METRIK */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
+                  {/* Kartu 1: Total File (Klik untuk membuka Rincian Berkas & Unduh) */}
                   <button
                     type="button"
-                    onClick={() => setModalTambahMatkulOpen(true)}
-                    className="inline-flex items-center space-x-2 px-4 py-2.5 bg-[#2563EB] hover:bg-blue-700 text-white font-semibold text-xs rounded-xl shadow-xs transition active:scale-95 self-start sm:self-auto"
+                    onClick={() => setModalRincianFileOpen(true)}
+                    className="text-left bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-blue-400 hover:shadow-sm transition-all cursor-pointer"
                   >
-                    <PlusCircle className="w-4 h-4" />
-                    <span>Tambah Mata Kuliah</span>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Total File</p>
+                        <h3 className="text-2xl sm:text-3xl font-bold text-[#1E293B] mt-1">{metrics.totalFile}</h3>
+                        <p className="text-[11px] text-blue-600 font-medium mt-1">
+                          {metrics.fileMateriCount} Materi &bull; {metrics.fileTugasCount} Tugas (Klik Rincian)
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                        <Files className="w-6 h-6" />
+                      </div>
+                    </div>
                   </button>
+
+                  {/* Kartu 2: Tugas Aktif */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-amber-300 transition-all">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Tugas Aktif</p>
+                        <h3 className="text-2xl sm:text-3xl font-bold text-[#1E293B] mt-1">{metrics.tugasAktif}</h3>
+                        <p className="text-[11px] text-amber-600 font-medium mt-1">
+                          {metrics.overdueCount > 0 ? `${metrics.overdueCount} Terlambat • ` : ''}Belum Selesai
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                        <Clock className="w-6 h-6" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Kartu 3: Total Materi */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs hover:border-emerald-300 transition-all sm:col-span-2 md:col-span-1">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Total Materi</p>
+                        <h3 className="text-2xl sm:text-3xl font-bold text-[#1E293B] mt-1">{metrics.totalMateri}</h3>
+                        <p className="text-[11px] text-emerald-600 font-medium mt-1">Dokumen & modul perkuliahan</p>
+                      </div>
+                      <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                        <BookMarked className="w-6 h-6" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
+                {/* 3. TABEL TUGAS AKTIF */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-                  {matkulList.length > 0 ? (
+                  <div className="p-5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <h2 className="text-lg font-bold text-[#1E293B] tracking-tight">Daftar Tugas Aktif</h2>
+                      <p className="text-xs text-slate-500">Tugas perkuliahan yang perlu dikerjakan atau diselesaikan</p>
+                    </div>
+                  </div>
+
+                  {tugasAktifTable.length > 0 ? (
                     <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse text-sm">
                         <thead>
                           <tr className="bg-slate-50/80 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                            <th className="py-3.5 px-4 sm:px-6">Nama Mata Kuliah</th>
-                            <th className="py-3.5 px-4 sm:px-6">Dosen Pengampu</th>
-                            <th className="py-3.5 px-4 sm:px-6">Jadwal Kuliah</th>
-                            <th className="py-3.5 px-4 sm:px-6 text-center">Materi / Tugas</th>
+                            <th className="py-3.5 px-4 sm:px-6">Mata Kuliah</th>
+                            <th className="py-3.5 px-4 sm:px-6">Nama Tugas & Deskripsi</th>
+                            <th className="py-3.5 px-4 sm:px-6">Tenggat Waktu</th>
                             <th className="py-3.5 px-4 sm:px-6 text-right">Aksi</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {matkulList.map((m) => {
-                            const matCount = materiList.filter((mat) => mat.id_matkul === m.id_matkul).length;
-                            const tugCount = tugasList.filter((t) => t.id_matkul === m.id_matkul).length;
+                          {tugasAktifTable.map((t) => (
+                            <tr key={t.id_tugas} className="hover:bg-slate-50/60 transition-colors">
+                              <td className="py-4 px-4 sm:px-6 align-top">
+                                <span className="font-semibold text-slate-900 block">{t.nama_matkul}</span>
+                                <span className="text-xs text-slate-400 block">{t.dosen_pengampu}</span>
+                              </td>
 
-                            return (
-                              <tr key={m.id_matkul} className="hover:bg-slate-50/60 transition-colors">
-                                <td className="py-4 px-4 sm:px-6">
-                                  <button
-                                    onClick={() => setSelectedMatkulId(m.id_matkul)}
-                                    className="font-bold text-slate-900 hover:text-blue-600 flex items-center gap-1.5 transition text-left"
-                                  >
-                                    <span>{m.nama_matkul}</span>
-                                    <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                                  </button>
-                                </td>
+                              <td className="py-4 px-4 sm:px-6 align-top max-w-md">
+                                <div className="font-semibold text-slate-900">{t.nama_tugas}</div>
+                                <div className="text-xs text-slate-500 line-clamp-2 mt-0.5">
+                                  {t.deskripsi || 'Tidak ada deskripsi rinci.'}
+                                </div>
+                              </td>
 
-                                <td className="py-4 px-4 sm:px-6 text-slate-700 text-xs">{m.dosen_pengampu}</td>
+                              <td className="py-4 px-4 sm:px-6 align-top whitespace-nowrap">
+                                <div className="text-xs font-medium text-slate-800 flex items-center gap-1.5">
+                                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>{t.tenggat_waktu}</span>
+                                </div>
+                                {t.autoStatus.label === 'Terlambat' ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 mt-1">
+                                    <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                    Terlambat
+                                  </span>
+                                ) : t.autoStatus.label === 'Proses' ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 mt-1">
+                                    &bull; Sedang Dikerjakan
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 mt-1">
+                                    &bull; Belum Dikerjakan
+                                  </span>
+                                )}
+                              </td>
 
-                                <td className="py-4 px-4 sm:px-6 text-xs text-slate-600">
-                                  <span className="font-semibold text-slate-800">{m.hari}</span> &middot; {m.jam}
-                                </td>
-
-                                <td className="py-4 px-4 sm:px-6 text-center text-xs text-slate-600 font-medium">
-                                  {matCount} Materi / {tugCount} Tugas
-                                </td>
-
-                                <td className="py-4 px-4 sm:px-6 text-right whitespace-nowrap space-x-1">
-                                  <button
-                                    onClick={() => setSelectedMatkulId(m.id_matkul)}
-                                    className="inline-flex items-center p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                                    title="Buka Detail Kelas"
-                                  >
-                                    <FolderOpen className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setEditingMatkul(m);
-                                      setModalEditMatkulOpen(true);
-                                    }}
-                                    className="p-2 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition"
-                                    title="Edit Mata Kuliah"
-                                  >
-                                    <Pencil className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setDeletingMatkul(m);
-                                      setModalHapusMatkulOpen(true);
-                                    }}
-                                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                                    title="Hapus Mata Kuliah"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
+                              <td className="py-4 px-4 sm:px-6 align-top text-right whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenKerjakan(t)}
+                                  className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-[#2563EB] hover:bg-blue-700 text-white font-semibold text-xs rounded-lg shadow-xs transition active:scale-95"
+                                >
+                                  <PenTool className="w-3.5 h-3.5" />
+                                  <span>Kerjakan</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
                   ) : (
                     <div className="text-center py-12 px-4">
-                      <p className="text-sm text-slate-500">Belum ada mata kuliah yang terdaftar.</p>
-                      <button
-                        onClick={() => setModalTambahMatkulOpen(true)}
-                        className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold"
-                      >
-                        Tambah Kelas Pertama
-                      </button>
+                      <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
+                        <CheckCircle className="w-6 h-6" />
+                      </div>
+                      <h4 className="text-base font-semibold text-slate-800">Semua Tugas Telah Selesai!</h4>
+                      <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                        {matkulList.length === 0
+                          ? 'Belum ada tugas aktif. Tambahkan mata kuliah dan tugas baru atau muat data contoh.'
+                          : 'Tidak ada tugas yang menunggu pengerjaan saat ini. Kerja bagus!'}
+                      </p>
                     </div>
                   )}
                 </div>
               </div>
-            ) : (
-              /* VIEW 2: DETAIL KELAS (BREADCRUMB & 2 KOLOM) */
-              <div className="space-y-6">
-                {/* BREADCRUMB NAVIGASI */}
-                <nav className="flex items-center space-x-2 text-xs text-slate-500">
-                  <button
-                    onClick={() => {
-                      setActiveTab('dashboard');
-                      setSelectedMatkulId(null);
-                    }}
-                    className="hover:text-blue-600 transition flex items-center gap-1"
-                  >
-                    <Home className="w-3.5 h-3.5" />
-                    <span>Dashboard</span>
-                  </button>
-                  <span>/</span>
-                  <button onClick={() => setSelectedMatkulId(null)} className="hover:text-blue-600 transition">
-                    Mata Kuliah
-                  </button>
-                  <span>/</span>
-                  <span className="text-slate-800 font-semibold">{selectedMatkul?.nama_matkul}</span>
-                </nav>
+            )}
 
-                {/* Header Kelas Info */}
-                <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <h1 className="text-xl sm:text-2xl font-bold text-[#1E293B]">{selectedMatkul?.nama_matkul}</h1>
-                    <p className="text-xs text-slate-500 mt-1 flex items-center flex-wrap gap-x-3 gap-y-1">
-                      <span>
-                        <strong className="text-slate-700">Dosen:</strong> {selectedMatkul?.dosen_pengampu}
-                      </span>
-                      <span>&bull;</span>
-                      <span>
-                        <strong className="text-slate-700">Jadwal:</strong> {selectedMatkul?.hari}, {selectedMatkul?.jam}
-                      </span>
-                    </p>
-                  </div>
-
-                  <div className="flex items-center space-x-2 self-start md:self-center">
-                    <button
-                      type="button"
-                      onClick={() => setModalUnggahMateriOpen(true)}
-                      className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs rounded-lg transition"
-                    >
-                      <FileUp className="w-3.5 h-3.5" />
-                      <span>Unggah Materi</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setModalTambahTugasOpen(true)}
-                      className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-[#2563EB] hover:bg-blue-700 text-white font-semibold text-xs rounded-lg shadow-xs transition"
-                    >
-                      <PlusCircle className="w-3.5 h-3.5" />
-                      <span>Buat Tugas</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Search Bar Detail Kelas (Materi & Tugas) */}
-                <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between gap-3 flex-wrap">
-                  <div className="relative flex-1 min-w-[240px] max-w-md">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
-                    <input
-                      type="text"
-                      value={detailSearchQuery}
-                      onChange={(e) => setDetailSearchQuery(e.target.value)}
-                      placeholder="Cari materi kuliah atau tugas pada kelas ini (tanpa scroll)..."
-                      className="w-full pl-9 pr-8 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
-                    />
-                    {detailSearchQuery && (
+            {/* TAB 2: MANAJEMEN MATA KULIAH */}
+            {activeTab === 'matakuliah' && (
+              <div>
+                {!selectedMatkulId ? (
+                  /* VIEW 1: DAFTAR KELAS */
+                  <div className="space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
+                      <div>
+                        <h1 className="text-2xl font-bold text-[#1E293B] tracking-tight">Manajemen Mata Kuliah</h1>
+                        <p className="text-xs text-slate-500 mt-1">Kelola kelas, jadwal kuliah, materi perkuliahan, dan tugas</p>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => setDetailSearchQuery('')}
-                        className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600"
+                        onClick={() => {
+                          if (!requireSignedIn()) return;
+                          setModalTambahMatkulOpen(true);
+                        }}
+                        className="inline-flex items-center space-x-2 px-4 py-2.5 bg-[#2563EB] hover:bg-blue-700 text-white font-semibold text-xs rounded-xl shadow-xs transition active:scale-95 self-start sm:self-auto"
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <PlusCircle className="w-4 h-4" />
+                        <span>Tambah Mata Kuliah</span>
                       </button>
-                    )}
+                    </div>
+
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+                      {matkulList.length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse text-sm">
+                            <thead>
+                              <tr className="bg-slate-50/80 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                                <th className="py-3.5 px-4 sm:px-6">Nama Mata Kuliah</th>
+                                <th className="py-3.5 px-4 sm:px-6">Dosen Pengampu</th>
+                                <th className="py-3.5 px-4 sm:px-6">Jadwal Kuliah</th>
+                                <th className="py-3.5 px-4 sm:px-6 text-center">Materi / Tugas</th>
+                                <th className="py-3.5 px-4 sm:px-6 text-right">Aksi</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {matkulList.map((m) => {
+                                const matCount = materiList.filter((mat) => mat.id_matkul === m.id_matkul).length;
+                                const tugCount = tugasList.filter((t) => t.id_matkul === m.id_matkul).length;
+
+                                return (
+                                  <tr key={m.id_matkul} className="hover:bg-slate-50/60 transition-colors">
+                                    <td className="py-4 px-4 sm:px-6">
+                                      <button
+                                        onClick={() => setSelectedMatkulId(m.id_matkul)}
+                                        className="font-bold text-slate-900 hover:text-blue-600 flex items-center gap-1.5 transition text-left"
+                                      >
+                                        <span>{m.nama_matkul}</span>
+                                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                                      </button>
+                                    </td>
+
+                                    <td className="py-4 px-4 sm:px-6 text-slate-700 text-xs">{m.dosen_pengampu}</td>
+
+                                    <td className="py-4 px-4 sm:px-6 text-xs text-slate-600">
+                                      <span className="font-semibold text-slate-800">{m.hari}</span> &middot; {m.jam}
+                                    </td>
+
+                                    <td className="py-4 px-4 sm:px-6 text-center text-xs text-slate-600 font-medium">
+                                      {matCount} Materi / {tugCount} Tugas
+                                    </td>
+
+                                    <td className="py-4 px-4 sm:px-6 text-right whitespace-nowrap space-x-1">
+                                      <button
+                                        onClick={() => setSelectedMatkulId(m.id_matkul)}
+                                        className="inline-flex items-center p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                                        title="Buka Detail Kelas"
+                                      >
+                                        <FolderOpen className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          if (!requireSignedIn()) return;
+                                          setEditingMatkul(m);
+                                          setModalEditMatkulOpen(true);
+                                        }}
+                                        className="p-2 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition"
+                                        title="Edit Mata Kuliah"
+                                      >
+                                        <Pencil className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          if (!requireSignedIn()) return;
+                                          setDeletingMatkul(m);
+                                          setModalHapusMatkulOpen(true);
+                                        }}
+                                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                                        title="Hapus Mata Kuliah"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="text-center py-12 px-4">
+                          <p className="text-sm text-slate-500">Belum ada mata kuliah yang terdaftar di database cloud.</p>
+                          <div className="mt-3 flex items-center justify-center gap-2">
+                            <button
+                              onClick={handleSeedSampleData}
+                              disabled={isSeeding}
+                              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold"
+                            >
+                              Muat Data Contoh
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (!requireSignedIn()) return;
+                                setModalTambahMatkulOpen(true);
+                              }}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold"
+                            >
+                              Tambah Kelas Pertama
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-xs text-slate-500 flex items-center gap-2">
-                    {detailSearchQuery ? (
-                      <>
-                        <span>Ditemukan: <strong>{filteredSelectedMateri.length}</strong> materi & <strong>{filteredSelectedTugas.length}</strong> tugas</span>
+                ) : (
+                  /* VIEW 2: DETAIL KELAS */
+                  <div className="space-y-6">
+                    <nav className="flex items-center space-x-2 text-xs text-slate-500">
+                      <button
+                        onClick={() => {
+                          setActiveTab('dashboard');
+                          setSelectedMatkulId(null);
+                        }}
+                        className="hover:text-blue-600 transition flex items-center gap-1"
+                      >
+                        <Home className="w-3.5 h-3.5" />
+                        <span>Dashboard</span>
+                      </button>
+                      <span>/</span>
+                      <button onClick={() => setSelectedMatkulId(null)} className="hover:text-blue-600 transition">
+                        Mata Kuliah
+                      </button>
+                      <span>/</span>
+                      <span className="text-slate-800 font-semibold">{selectedMatkul?.nama_matkul}</span>
+                    </nav>
+
+                    {/* Header Kelas Info */}
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <h1 className="text-xl sm:text-2xl font-bold text-[#1E293B]">{selectedMatkul?.nama_matkul}</h1>
+                        <p className="text-xs text-slate-500 mt-1 flex items-center flex-wrap gap-x-3 gap-y-1">
+                          <span>
+                            <strong className="text-slate-700">Dosen:</strong> {selectedMatkul?.dosen_pengampu}
+                          </span>
+                          <span>&bull;</span>
+                          <span>
+                            <strong className="text-slate-700">Jadwal:</strong> {selectedMatkul?.hari}, {selectedMatkul?.jam}
+                          </span>
+                        </p>
+                      </div>
+
+                      <div className="flex items-center space-x-2 self-start md:self-center">
                         <button
                           type="button"
-                          onClick={() => setDetailSearchQuery('')}
-                          className="text-xs font-semibold text-blue-600 hover:underline"
+                          onClick={() => {
+                            if (!requireSignedIn()) return;
+                            setModalUnggahMateriOpen(true);
+                          }}
+                          className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs rounded-lg transition"
                         >
-                          Hapus filter
+                          <FileUp className="w-3.5 h-3.5" />
+                          <span>Unggah Materi</span>
                         </button>
-                      </>
-                    ) : (
-                      <span>Menampilkan seluruh {selectedMateriList.length} materi & {selectedTugasList.length} tugas</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* 2 KOLOM: KIRI MATERI, KANAN TUGAS */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* KOLOM KIRI: DAFTAR MATERI */}
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 flex flex-col">
-                    <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                          <BookOpen className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <h2 className="text-base font-bold text-[#1E293B]">Materi Perkuliahan</h2>
-                          <p className="text-[11px] text-slate-400">Total {filteredSelectedMateri.length} modul & materi tersedia</p>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!requireSignedIn()) return;
+                            setModalTambahTugasOpen(true);
+                          }}
+                          className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-[#2563EB] hover:bg-blue-700 text-white font-semibold text-xs rounded-lg shadow-xs transition"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" />
+                          <span>Buat Tugas</span>
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setModalUnggahMateriOpen(true)}
-                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg text-xs font-semibold flex items-center gap-1 transition"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span>Unggah</span>
-                      </button>
                     </div>
 
-                    {filteredSelectedMateri.length > 0 ? (
-                      <div className="space-y-3 flex-1">
-                        {filteredSelectedMateri.map((m) => (
-                          <div
-                            key={m.id_materi}
-                            className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-200 transition flex items-start justify-between gap-3"
+                    {/* Search Bar Detail Kelas */}
+                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between gap-3 flex-wrap">
+                      <div className="relative flex-1 min-w-[240px] max-w-md">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={detailSearchQuery}
+                          onChange={(e) => setDetailSearchQuery(e.target.value)}
+                          placeholder="Cari materi kuliah atau tugas pada kelas ini (tanpa scroll)..."
+                          className="w-full pl-9 pr-8 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
+                        />
+                        {detailSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setDetailSearchQuery('')}
+                            className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600"
                           >
-                           
-                              <div>
-                                <h4 className="text-xs font-semibold text-[#1E293B] leading-snug">{m.judul_materi}</h4>
-                                <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
-                                  <Calendar className="w-3 h-3" />
-                                  <span>Pertemuan ke-{m.pertemuan}</span>
-                                </p>
-                              </div>
-                            
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-500 flex items-center gap-2">
+                        {detailSearchQuery ? (
+                          <>
+                            <span>
+                              Ditemukan: <strong>{filteredSelectedMateri.length}</strong> materi &{' '}
+                              <strong>{filteredSelectedTugas.length}</strong> tugas
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setDetailSearchQuery('')}
+                              className="text-xs font-semibold text-blue-600 hover:underline"
+                            >
+                              Hapus filter
+                            </button>
+                          </>
+                        ) : (
+                          <span>
+                            Menampilkan seluruh {selectedMateriList.length} materi & {selectedTugasList.length} tugas
+                          </span>
+                        )}
+                      </div>
+                    </div>
 
-                            <div className="flex items-center space-x-1 shrink-0">
-                              <button
-                                onClick={() => showToast(`Mengunduh berkas: ${m.file_path}`, 'info')}
-                                className="px-2.5 py-1 bg-white border border-slate-200 hover:border-blue-400 text-blue-600 text-xs font-medium rounded-lg flex items-center gap-1 transition"
-                                title="Unduh Modul"
-                              >
-                                <Download className="w-3 h-3" />
-                                <span>Unduh</span>
-                              </button>
-                              <button
-                                onClick={() => handleHapusMateri(m.id_materi)}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition"
-                                title="Hapus Materi"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                    {/* 2 KOLOM: KIRI MATERI, KANAN TUGAS */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* KOLOM KIRI: DAFTAR MATERI */}
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 flex flex-col">
+                        <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                              <BookOpen className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h2 className="text-base font-bold text-[#1E293B]">Materi Perkuliahan</h2>
+                              <p className="text-[11px] text-slate-400">
+                                Total {filteredSelectedMateri.length} modul & materi tersedia
+                              </p>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    ) : detailSearchQuery ? (
-                      <div className="text-center py-10 my-auto text-slate-400">
-                        <Search className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                        <p className="text-xs">Tidak ada materi yang cocok dengan "{detailSearchQuery}".</p>
-                      </div>
-                    ) : (
-                      <div className="text-center py-10 my-auto text-slate-400">
-                        <FileQuestion className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                        <p className="text-xs">Belum ada materi perkuliahan yang diunggah.</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* KOLOM KANAN: DAFTAR TUGAS */}
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 flex flex-col">
-                    <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-                          <CheckSquare className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <h2 className="text-base font-bold text-[#1E293B]">Tugas & Kuis</h2>
-                          <p className="text-[11px] text-slate-400">Total {filteredSelectedTugas.length} tugas terdaftar</p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setModalTambahTugasOpen(true)}
-                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg text-xs font-semibold flex items-center gap-1 transition"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span>Tambah</span>
-                      </button>
-                    </div>
-
-                    {filteredSelectedTugas.length > 0 ? (
-                      <div className="space-y-3 flex-1">
-                        {filteredSelectedTugas.map((t) => (
-                          <div
-                            key={t.id_tugas}
-                            className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-200 transition"
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!requireSignedIn()) return;
+                              setModalUnggahMateriOpen(true);
+                            }}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg text-xs font-semibold flex items-center gap-1 transition"
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-xs font-bold text-[#1E293B]">{t.nama_tugas}</span>
-                                  {(() => {
-                                    const autoStatus = getAutomatedTaskStatus(t);
-                                    if (autoStatus.label === 'Selesai') {
-                                      return (
-                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                                          <CheckCircle className="w-3 h-3 text-emerald-600" /> Selesai
-                                        </span>
-                                      );
-                                    }
-                                    if (autoStatus.label === 'Terlambat') {
-                                      return (
-                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-800 flex items-center gap-1">
-                                          <AlertTriangle className="w-3 h-3 text-rose-600" /> Terlambat
-                                        </span>
-                                      );
-                                    }
-                                    if (autoStatus.label === 'Proses') {
-                                      return (
-                                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-800">
-                                          Sedang Dikerjakan
-                                        </span>
-                                      );
-                                    }
-                                    return (
-                                      <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-200 text-slate-700">
-                                        Belum Dikerjakan
-                                      </span>
-                                    );
-                                  })()}
+                            <Plus className="w-4 h-4" />
+                            <span>Unggah</span>
+                          </button>
+                        </div>
+
+                        {filteredSelectedMateri.length > 0 ? (
+                          <div className="space-y-3 flex-1">
+                            {filteredSelectedMateri.map((m) => (
+                              <div
+                                key={m.id_materi}
+                                className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-200 transition flex items-start justify-between gap-3"
+                              >
+                                <div>
+                                  <h4 className="text-xs font-semibold text-[#1E293B] leading-snug">{m.judul_materi}</h4>
+                                  <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
+                                    <Calendar className="w-3 h-3" />
+                                    <span>Pertemuan ke-{m.pertemuan}</span>
+                                  </p>
                                 </div>
-                                <p className="text-xs text-slate-500 mt-1">{t.deskripsi || 'Tidak ada catatan tugas.'}</p>
-                              </div>
-                              <button
-                                onClick={() => handleHapusTugas(t.id_tugas)}
-                                className="p-1 text-slate-300 hover:text-rose-600 rounded transition"
-                                title="Hapus Tugas"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
 
-                            <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between text-xs flex-wrap gap-2">
-                              <div className="flex items-center text-slate-500 text-[11px] gap-1">
-                                <Clock className="w-3 h-3 text-slate-400" />
-                                <span>Tenggat: {t.tenggat_waktu}</span>
-                              </div>
-
-                              <div className="flex items-center space-x-2">
-                                {t.file_jawaban && (
+                                <div className="flex items-center space-x-1 shrink-0">
                                   <button
-                                    onClick={() => showToast(`Mengunduh jawaban: ${t.file_jawaban}`, 'info')}
-                                    className="text-[11px] text-blue-600 hover:underline flex items-center gap-1"
+                                    type="button"
+                                    disabled={downloadingKey === `mat-${m.id_materi}`}
+                                    onClick={() =>
+                                      handleDownloadFile(`mat-${m.id_materi}`, m.file_path, m.file_id, {
+                                        title: m.judul_materi,
+                                        subtitle: `Pertemuan ke-${m.pertemuan}`,
+                                        description: `Modul perkuliahan: ${m.judul_materi}`,
+                                      })
+                                    }
+                                    className="px-2.5 py-1 bg-white border border-slate-200 hover:border-blue-400 text-blue-600 text-xs font-medium rounded-lg flex items-center gap-1 transition disabled:opacity-60"
+                                    title="Unduh Modul"
                                   >
-                                    <FileCheck className="w-3 h-3" />
-                                    <span>File Jawaban</span>
+                                    {downloadingKey === `mat-${m.id_materi}` ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Download className="w-3 h-3" />
+                                    )}
+                                    <span>Unduh</span>
                                   </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenKerjakan(t)}
-                                  className="px-2.5 py-1 bg-[#2563EB] hover:bg-blue-700 text-white font-medium text-xs rounded-lg transition"
-                                >
-                                  {t.status === 'Selesai' ? 'Perbarui Jawaban' : 'Kumpul / Kerjakan'}
-                                </button>
+                                  <button
+                                    onClick={() => handleHapusMateri(m)}
+                                    className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition"
+                                    title="Hapus Materi"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
+                            ))}
+                          </div>
+                        ) : detailSearchQuery ? (
+                          <div className="text-center py-10 my-auto text-slate-400">
+                            <Search className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                            <p className="text-xs">Tidak ada materi yang cocok dengan "{detailSearchQuery}".</p>
+                          </div>
+                        ) : (
+                          <div className="text-center py-10 my-auto text-slate-400">
+                            <FileQuestion className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                            <p className="text-xs">Belum ada materi perkuliahan yang diunggah.</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* KOLOM KANAN: DAFTAR TUGAS */}
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5 flex flex-col">
+                        <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                              <CheckSquare className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h2 className="text-base font-bold text-[#1E293B]">Tugas & Kuis</h2>
+                              <p className="text-[11px] text-slate-400">Total {filteredSelectedTugas.length} tugas terdaftar</p>
                             </div>
                           </div>
-                        ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!requireSignedIn()) return;
+                              setModalTambahTugasOpen(true);
+                            }}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg text-xs font-semibold flex items-center gap-1 transition"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>Tambah</span>
+                          </button>
+                        </div>
+
+                        {filteredSelectedTugas.length > 0 ? (
+                          <div className="space-y-3 flex-1">
+                            {filteredSelectedTugas.map((t) => (
+                              <div
+                                key={t.id_tugas}
+                                className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-200 transition"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs font-bold text-[#1E293B]">{t.nama_tugas}</span>
+                                      {(() => {
+                                        const autoStatus = getAutomatedTaskStatus(t);
+                                        if (autoStatus.label === 'Selesai') {
+                                          return (
+                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                                              <CheckCircle className="w-3 h-3 text-emerald-600" /> Selesai
+                                            </span>
+                                          );
+                                        }
+                                        if (autoStatus.label === 'Terlambat') {
+                                          return (
+                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-800 flex items-center gap-1">
+                                              <AlertTriangle className="w-3 h-3 text-rose-600" /> Terlambat
+                                            </span>
+                                          );
+                                        }
+                                        if (autoStatus.label === 'Proses') {
+                                          return (
+                                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+                                              Sedang Dikerjakan
+                                            </span>
+                                          );
+                                        }
+                                        return (
+                                          <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-200 text-slate-700">
+                                            Belum Dikerjakan
+                                          </span>
+                                        );
+                                      })()}
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-1">{t.deskripsi || 'Tidak ada catatan tugas.'}</p>
+                                  </div>
+                                  <button
+                                    onClick={() => handleHapusTugas(t)}
+                                    className="p-1 text-slate-300 hover:text-rose-600 rounded transition"
+                                    title="Hapus Tugas"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+
+                                <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between text-xs flex-wrap gap-2">
+                                  <div className="flex items-center text-slate-500 text-[11px] gap-1">
+                                    <Clock className="w-3 h-3 text-slate-400" />
+                                    <span>Tenggat: {t.tenggat_waktu}</span>
+                                  </div>
+
+                                  <div className="flex items-center space-x-2">
+                                    {t.file_jawaban && (
+                                      <button
+                                        type="button"
+                                        disabled={downloadingKey === `tug-${t.id_tugas}`}
+                                        onClick={() =>
+                                          handleDownloadFile(`tug-${t.id_tugas}`, t.file_jawaban!, t.file_id, {
+                                            title: t.nama_tugas,
+                                            subtitle: `Tenggat: ${t.tenggat_waktu}`,
+                                            description: t.catatan_jawaban || t.deskripsi || 'Berkas jawaban tugas.',
+                                          })
+                                        }
+                                        className="text-[11px] text-blue-600 hover:underline flex items-center gap-1 font-medium disabled:opacity-60"
+                                      >
+                                        {downloadingKey === `tug-${t.id_tugas}` ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Download className="w-3 h-3" />
+                                        )}
+                                        <span>Unduh Jawaban</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenKerjakan(t)}
+                                      className="px-2.5 py-1 bg-[#2563EB] hover:bg-blue-700 text-white font-medium text-xs rounded-lg transition"
+                                    >
+                                      {getAutomatedTaskStatus(t).label === 'Selesai' ? 'Perbarui Jawaban' : 'Kumpul / Kerjakan'}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : detailSearchQuery ? (
+                          <div className="text-center py-10 my-auto text-slate-400">
+                            <Search className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                            <p className="text-xs">Tidak ada tugas yang cocok dengan "{detailSearchQuery}".</p>
+                          </div>
+                        ) : (
+                          <div className="text-center py-10 my-auto text-slate-400">
+                            <Calendar className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                            <p className="text-xs">Belum ada tugas atau ujian untuk mata kuliah ini.</p>
+                          </div>
+                        )}
                       </div>
-                    ) : detailSearchQuery ? (
-                      <div className="text-center py-10 my-auto text-slate-400">
-                        <Search className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                        <p className="text-xs">Tidak ada tugas yang cocok dengan "{detailSearchQuery}".</p>
-                      </div>
-                    ) : (
-                      <div className="text-center py-10 my-auto text-slate-400">
-                        <Calendar className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                        <p className="text-xs">Belum ada tugas atau ujian untuk mata kuliah ini.</p>
-                      </div>
-                    )}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
-          </div>
+          </>
         )}
-
       </main>
 
       {/* ======================================================== */}
-      {/* MODAL POP-UP: KERJAKAN TUGAS (Action-Oriented UX) */}
+      {/* MODAL POP-UP: KERJAKAN TUGAS */}
       {/* ======================================================== */}
       {modalKerjakanOpen && activeTaskForModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
@@ -1689,7 +2485,7 @@ export default function App() {
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div>
                 <h3 className="text-base font-bold text-[#1E293B]">Kerjakan Tugas</h3>
-                <p className="text-xs text-slate-500">Perbarui status dan kumpulkan jawaban mahasiswa</p>
+                <p className="text-xs text-slate-500">Perbarui status dan unggah jawaban mahasiswa ke cloud</p>
               </div>
               <button
                 type="button"
@@ -1738,29 +2534,35 @@ export default function App() {
                 <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
                   {kerjakanFileName ? (
                     <span className="text-emerald-700 font-medium">
-                      ✓ Berkas jawaban telah dilampirkan. Tugas otomatis dinyatakan <strong>Selesai</strong> saat disimpan.
+                      ✓ Berkas jawaban telah dilampirkan dan tersimpan di cloud agar dapat diunduh siapa saja.
                     </span>
                   ) : (
                     <span className="text-slate-500">
-                      ℹ Tugas hanya dinyatakan <strong>Selesai</strong> jika Anda mengunggah berkas jawaban. Jika berkas belum diunggah, tugas tetap berstatus <strong>Belum Dikerjakan / Proses</strong> (atau <strong>Terlambat</strong> bila melewati batas waktu).
+                      ℹ Tugas hanya dinyatakan <strong>Selesai</strong> jika Anda mengunggah berkas jawaban.
                     </span>
                   )}
                 </p>
               </div>
 
-              {/* Unggah Berkas Jawaban (Syarat Mutlak Selesai) */}
+              {/* Unggah Berkas Jawaban */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-semibold text-slate-700">
                     Unggah Berkas Jawaban (PDF / ZIP / DOCX)
                   </label>
-                  <span className="text-[10px] text-blue-600 font-semibold">Syarat Status Selesai</span>
+                  <span className="text-[10px] text-blue-600 font-semibold">Maks. 4MB (Cloud)</span>
                 </div>
                 <input
                   type="file"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
+                      if (file.size > MAX_CLOUD_FILE_BYTES) {
+                        showToast('Ukuran file maksimal 4MB untuk penyimpanan cloud.', 'danger');
+                        e.target.value = '';
+                        return;
+                      }
+                      setKerjakanSelectedFile(file);
                       setKerjakanFileName(file.name);
                       setKerjakanStatus('Selesai');
                     }
@@ -1776,6 +2578,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => {
+                        setKerjakanSelectedFile(null);
                         setKerjakanFileName('');
                         setKerjakanStatus('Belum Dimulai');
                       }}
@@ -1786,7 +2589,7 @@ export default function App() {
                   </div>
                 ) : (
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Pilih file jawaban dari komputer/perangkat Anda untuk menyelesaikan tugas ini.
+                    Pilih file jawaban dari komputer/HP Anda untuk menyelesaikan tugas ini.
                   </p>
                 )}
               </div>
@@ -1812,9 +2615,11 @@ export default function App() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-semibold bg-[#2563EB] hover:bg-blue-700 text-white rounded-lg shadow-xs transition"
+                  disabled={isSubmittingKerjakan}
+                  className="px-4 py-2 text-xs font-semibold bg-[#2563EB] hover:bg-blue-700 text-white rounded-lg shadow-xs transition inline-flex items-center gap-1.5 disabled:opacity-60"
                 >
-                  Simpan Progres
+                  {isSubmittingKerjakan && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{isSubmittingKerjakan ? 'Mengunggah...' : 'Simpan Progres'}</span>
                 </button>
               </div>
             </form>
@@ -1823,12 +2628,11 @@ export default function App() {
       )}
 
       {/* ======================================================== */}
-      {/* MODAL POP-UP: RINCIAN PELACAKAN BERKAS (MATERI & TUGAS) */}
+      {/* MODAL POP-UP: RINCIAN PELACAKAN BERKAS */}
       {/* ======================================================== */}
       {modalRincianFileOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-xl overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[85vh]">
-            {/* Modal Header */}
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
               <div>
                 <div className="flex items-center gap-2">
@@ -1850,7 +2654,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* Segmented Filter Bar */}
             <div className="px-5 pt-3 border-b border-slate-100 flex items-center gap-2 bg-white">
               <button
                 onClick={() => setActiveFileFilter('all')}
@@ -1886,9 +2689,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* Modal Body: File List */}
             <div className="p-5 overflow-y-auto space-y-3 flex-1 bg-slate-50/30">
-              {/* SECTION 1: MATERI FILES */}
               {(activeFileFilter === 'all' || activeFileFilter === 'materi') && (
                 <div className="space-y-2">
                   <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -1914,16 +2715,28 @@ export default function App() {
                                 <div className="truncate">
                                   <h4 className="text-xs font-bold text-[#1E293B] truncate">{m.judul_materi}</h4>
                                   <p className="text-[11px] text-slate-400 mt-0.5 truncate">
-                                    <span className="text-slate-600 font-medium">{matkul?.nama_matkul || 'Mata Kuliah'}</span> &middot; Pertemuan {m.pertemuan} &middot; <code className="text-slate-500 font-mono text-[10px]">{m.file_path}</code>
+                                    <span className="text-slate-600 font-medium">{matkul?.nama_matkul || 'Mata Kuliah'}</span> &middot; Pertemuan {m.pertemuan} &middot;{' '}
+                                    <code className="text-slate-500 font-mono text-[10px]">{m.file_path}</code>
                                   </p>
                                 </div>
                               </div>
                               <button
                                 type="button"
-                                onClick={() => showToast(`Mengunduh materi: ${m.judul_materi}`, 'info')}
-                                className="px-3 py-1.5 bg-slate-50 hover:bg-emerald-50 text-emerald-700 border border-slate-200 hover:border-emerald-300 text-xs font-semibold rounded-lg flex items-center gap-1.5 shrink-0 transition"
+                                disabled={downloadingKey === `modal-mat-${m.id_materi}`}
+                                onClick={() =>
+                                  handleDownloadFile(`modal-mat-${m.id_materi}`, m.file_path, m.file_id, {
+                                    title: m.judul_materi,
+                                    subtitle: `${matkul?.nama_matkul || 'Mata Kuliah'} - Pertemuan ${m.pertemuan}`,
+                                    description: `Modul perkuliahan: ${m.judul_materi}`,
+                                  })
+                                }
+                                className="px-3 py-1.5 bg-slate-50 hover:bg-emerald-50 text-emerald-700 border border-slate-200 hover:border-emerald-300 text-xs font-semibold rounded-lg flex items-center gap-1.5 shrink-0 transition disabled:opacity-60"
                               >
-                                <Download className="w-3.5 h-3.5" />
+                                {downloadingKey === `modal-mat-${m.id_materi}` ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Download className="w-3.5 h-3.5" />
+                                )}
                                 <span>Unduh</span>
                               </button>
                             </div>
@@ -1938,7 +2751,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* SECTION 2: TUGAS FILES */}
               {(activeFileFilter === 'all' || activeFileFilter === 'tugas') && (
                 <div className="space-y-2 pt-2">
                   <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -1966,26 +2778,38 @@ export default function App() {
                                     <h4 className="text-xs font-bold text-[#1E293B] truncate">{t.nama_tugas}</h4>
                                     <span
                                       className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                                        t.status === 'Selesai'
+                                        getAutomatedTaskStatus(t).label === 'Selesai'
                                           ? 'bg-emerald-100 text-emerald-800'
                                           : 'bg-amber-100 text-amber-800'
                                       }`}
                                     >
-                                      {t.status}
+                                      {getAutomatedTaskStatus(t).label}
                                     </span>
                                   </div>
                                   <p className="text-[11px] text-slate-400 mt-0.5 truncate">
-                                    <span className="text-slate-600 font-medium">{matkul?.nama_matkul || 'Mata Kuliah'}</span> &middot; <code className="text-slate-500 font-mono text-[10px]">{t.file_jawaban}</code>
+                                    <span className="text-slate-600 font-medium">{matkul?.nama_matkul || 'Mata Kuliah'}</span> &middot;{' '}
+                                    <code className="text-slate-500 font-mono text-[10px]">{t.file_jawaban}</code>
                                     {t.catatan_jawaban && ` — "${t.catatan_jawaban}"`}
                                   </p>
                                 </div>
                               </div>
                               <button
                                 type="button"
-                                onClick={() => showToast(`Mengunduh berkas jawaban: ${t.file_jawaban}`, 'info')}
-                                className="px-3 py-1.5 bg-slate-50 hover:bg-blue-50 text-blue-700 border border-slate-200 hover:border-blue-300 text-xs font-semibold rounded-lg flex items-center gap-1.5 shrink-0 transition"
+                                disabled={downloadingKey === `modal-tug-${t.id_tugas}`}
+                                onClick={() =>
+                                  handleDownloadFile(`modal-tug-${t.id_tugas}`, t.file_jawaban!, t.file_id, {
+                                    title: t.nama_tugas,
+                                    subtitle: `${matkul?.nama_matkul || 'Mata Kuliah'} - Tenggat: ${t.tenggat_waktu}`,
+                                    description: t.catatan_jawaban || t.deskripsi || 'Berkas jawaban tugas.',
+                                  })
+                                }
+                                className="px-3 py-1.5 bg-slate-50 hover:bg-blue-50 text-blue-700 border border-slate-200 hover:border-blue-300 text-xs font-semibold rounded-lg flex items-center gap-1.5 shrink-0 transition disabled:opacity-60"
                               >
-                                <Download className="w-3.5 h-3.5" />
+                                {downloadingKey === `modal-tug-${t.id_tugas}` ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Download className="w-3.5 h-3.5" />
+                                )}
                                 <span>Unduh</span>
                               </button>
                             </div>
@@ -2001,10 +2825,9 @@ export default function App() {
               )}
             </div>
 
-            {/* Modal Footer */}
             <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
               <span className="text-xs text-slate-500 font-medium">
-                Total terdeteksi di database: <strong className="text-slate-800">{metrics.totalFile} Berkas</strong>
+                Total terdeteksi di database cloud: <strong className="text-slate-800">{metrics.totalFile} Berkas</strong>
               </span>
               <button
                 type="button"
@@ -2017,6 +2840,8 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* MODAL POP-UP: TAMBAH MATA KULIAH */}
       {modalTambahMatkulOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-lg overflow-hidden border border-slate-200">
@@ -2097,9 +2922,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ======================================================== */}
       {/* MODAL POP-UP: EDIT MATA KULIAH */}
-      {/* ======================================================== */}
       {modalEditMatkulOpen && editingMatkul && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-lg overflow-hidden border border-slate-200">
@@ -2177,9 +3000,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ======================================================== */}
       {/* MODAL POP-UP: KONFIRMASI HAPUS MATA KULIAH */}
-      {/* ======================================================== */}
       {modalHapusMatkulOpen && deletingMatkul && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-sm w-full shadow-lg overflow-hidden border border-slate-200 p-5 text-center">
@@ -2210,9 +3031,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* MODAL POP-UP: UNGGAH MATERI (DETAIL KELAS) */}
-      {/* ======================================================== */}
+      {/* MODAL POP-UP: UNGGAH MATERI */}
       {modalUnggahMateriOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-lg overflow-hidden border border-slate-200">
@@ -2255,11 +3074,22 @@ export default function App() {
                   type="file"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) setNewMateri((prev) => ({ ...prev, fileName: f.name }));
+                    if (f) {
+                      if (f.size > MAX_CLOUD_FILE_BYTES) {
+                        showToast('Ukuran file maksimal 4MB untuk penyimpanan cloud.', 'danger');
+                        e.target.value = '';
+                        return;
+                      }
+                      setNewMateri((prev) => ({
+                        ...prev,
+                        fileName: f.name,
+                        fileObj: f,
+                      }));
+                    }
                   }}
                   className="block w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 border border-slate-200 rounded-lg cursor-pointer"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">Format: PDF, PPTX, DOCX, ZIP (Maks. 16MB)</p>
+                <p className="text-[10px] text-slate-400 mt-1">Format: PDF, PPTX, DOCX, ZIP (Maks. 4MB Cloud)</p>
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
@@ -2272,9 +3102,11 @@ export default function App() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-semibold bg-[#2563EB] hover:bg-blue-700 text-white rounded-lg shadow-xs"
+                  disabled={isSubmittingMateri}
+                  className="px-4 py-2 text-xs font-semibold bg-[#2563EB] hover:bg-blue-700 text-white rounded-lg shadow-xs inline-flex items-center gap-1.5 disabled:opacity-60"
                 >
-                  Simpan Berkas
+                  {isSubmittingMateri && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{isSubmittingMateri ? 'Mengunggah...' : 'Simpan Berkas'}</span>
                 </button>
               </div>
             </form>
@@ -2282,9 +3114,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* MODAL POP-UP: TAMBAH TUGAS (DETAIL KELAS) */}
-      {/* ======================================================== */}
+      {/* MODAL POP-UP: TAMBAH TUGAS */}
       {modalTambahTugasOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-lg overflow-hidden border border-slate-200">
@@ -2328,8 +3158,6 @@ export default function App() {
                   className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
                 />
               </div>
-
-              
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
                 <button

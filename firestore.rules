@@ -1,0 +1,298 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ========================================================
+    // GLOBAL HELPER PRIMITIVES
+    // ========================================================
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    function isVerified() {
+      return isSignedIn();
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email_verified == true && request.auth.token.email == 'azlanfarizki04@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // ========================================================
+    // ENTITY VALIDATION BLUEPRINTS
+    // ========================================================
+    function isValidMatkul(data) {
+      return data.keys().hasAll(['nama_matkul', 'dosen_pengampu', 'hari', 'jam', 'isPublic', 'ownerUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['nama_matkul', 'dosen_pengampu', 'hari', 'jam', 'isPublic', 'ownerUid', 'createdAt', 'updatedAt'])
+        && data.nama_matkul is string && data.nama_matkul.size() >= 1 && data.nama_matkul.size() <= 150
+        && data.dosen_pengampu is string && data.dosen_pengampu.size() >= 1 && data.dosen_pengampu.size() <= 120
+        && data.hari is string && data.hari in ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
+        && data.jam is string && data.jam.size() >= 1 && data.jam.size() <= 40
+        && data.isPublic is bool
+        && isValidId(data.ownerUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMateri(data) {
+      return data.keys().hasAll(['id_matkul', 'pertemuan', 'judul_materi', 'file_path', 'isPublic', 'ownerUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id_matkul', 'pertemuan', 'judul_materi', 'file_path', 'file_id', 'isPublic', 'ownerUid', 'createdAt', 'updatedAt'])
+        && isValidId(data.id_matkul)
+        && data.pertemuan is number && data.pertemuan >= 1 && data.pertemuan <= 32
+        && data.judul_materi is string && data.judul_materi.size() >= 1 && data.judul_materi.size() <= 200
+        && data.file_path is string && data.file_path.size() >= 1 && data.file_path.size() <= 255
+        && (!('file_id' in data) || (data.file_id is string && data.file_id.size() <= 128))
+        && data.isPublic is bool
+        && isValidId(data.ownerUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTugas(data) {
+      return data.keys().hasAll(['id_matkul', 'nama_tugas', 'deskripsi', 'tenggat_waktu', 'status', 'isPublic', 'ownerUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id_matkul', 'nama_tugas', 'deskripsi', 'tenggat_waktu', 'status', 'file_jawaban', 'file_id', 'catatan_jawaban', 'submittedByUid', 'submittedByName', 'isPublic', 'ownerUid', 'createdAt', 'updatedAt'])
+        && isValidId(data.id_matkul)
+        && data.nama_tugas is string && data.nama_tugas.size() >= 1 && data.nama_tugas.size() <= 200
+        && data.deskripsi is string && data.deskripsi.size() <= 2000
+        && data.tenggat_waktu is string && data.tenggat_waktu.size() >= 1 && data.tenggat_waktu.size() <= 40
+        && data.status is string && data.status in ['Belum Dimulai', 'Proses', 'Selesai']
+        && (!('file_jawaban' in data) || (data.file_jawaban is string && data.file_jawaban.size() <= 255))
+        && (!('file_id' in data) || (data.file_id is string && data.file_id.size() <= 128))
+        && (!('catatan_jawaban' in data) || (data.catatan_jawaban is string && data.catatan_jawaban.size() <= 2000))
+        && (!('submittedByUid' in data) || (data.submittedByUid is string && data.submittedByUid.size() <= 128))
+        && (!('submittedByName' in data) || (data.submittedByName is string && data.submittedByName.size() <= 120))
+        && data.isPublic is bool
+        && isValidId(data.ownerUid)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUploadedFile(data) {
+      return data.keys().hasAll(['fileName', 'mimeType', 'sizeBytes', 'chunkCount', 'isPublic', 'ownerUid', 'createdAt'])
+        && data.keys().hasOnly(['fileName', 'mimeType', 'sizeBytes', 'chunkCount', 'isPublic', 'ownerUid', 'createdAt'])
+        && data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 255
+        && data.mimeType is string && data.mimeType.size() >= 1 && data.mimeType.size() <= 120
+        && data.sizeBytes is number && data.sizeBytes >= 0 && data.sizeBytes <= 4194304
+        && data.chunkCount is number && data.chunkCount >= 1 && data.chunkCount <= 10
+        && data.isPublic is bool
+        && isValidId(data.ownerUid)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidFileChunk(data) {
+      return data.keys().hasAll(['index', 'data', 'isPublic', 'ownerUid'])
+        && data.keys().hasOnly(['index', 'data', 'isPublic', 'ownerUid'])
+        && data.index is number && data.index >= 0 && data.index < 10
+        && data.data is string && data.data.size() >= 1 && data.data.size() <= 700000
+        && data.isPublic is bool
+        && isValidId(data.ownerUid);
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['nim', 'nama', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['nim', 'nama', 'role', 'createdAt', 'updatedAt'])
+        && data.nim is string && data.nim.size() >= 1 && data.nim.size() <= 40
+        && data.nama is string && data.nama.size() >= 1 && data.nama.size() <= 120
+        && data.role is string && data.role in ['mahasiswa', 'admin']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // ========================================================
+    // COLLECTION: MATA KULIAH
+    // ========================================================
+    match /matakuliah/{matkulId} {
+      allow get: if isValidId(matkulId)
+        && (existing().isPublic == true || (isSignedIn() && (isAdmin() || existing().ownerUid == request.auth.uid)));
+
+      allow list: if resource.data.isPublic == true
+        || (isSignedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid));
+
+      allow create: if isVerified()
+        && isValidId(matkulId)
+        && isValidMatkul(incoming())
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && isValidId(matkulId)
+        && isValidMatkul(incoming())
+        && (isAdmin() || existing().ownerUid == request.auth.uid)
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['nama_matkul', 'dosen_pengampu', 'hari', 'jam', 'isPublic', 'updatedAt']);
+
+      allow delete: if isVerified()
+        && isValidId(matkulId)
+        && (isAdmin() || existing().ownerUid == request.auth.uid);
+    }
+
+    // ========================================================
+    // COLLECTION: MATERI
+    // ========================================================
+    match /materi/{materiId} {
+      allow get: if isValidId(materiId)
+        && (existing().isPublic == true || (isSignedIn() && (isAdmin() || existing().ownerUid == request.auth.uid)));
+
+      allow list: if resource.data.isPublic == true
+        || (isSignedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid));
+
+      allow create: if isVerified()
+        && isValidId(materiId)
+        && isValidMateri(incoming())
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && existsAfter(/databases/$(database)/documents/matakuliah/$(incoming().id_matkul));
+
+      allow update: if isVerified()
+        && isValidId(materiId)
+        && isValidMateri(incoming())
+        && (isAdmin() || existing().ownerUid == request.auth.uid)
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['pertemuan', 'judul_materi', 'file_path', 'file_id', 'isPublic', 'updatedAt']);
+
+      allow delete: if isVerified()
+        && isValidId(materiId)
+        && (isAdmin() || existing().ownerUid == request.auth.uid);
+    }
+
+    // ========================================================
+    // COLLECTION: TUGAS
+    // ========================================================
+    match /tugas/{tugasId} {
+      allow get: if isValidId(tugasId)
+        && (existing().isPublic == true || (isSignedIn() && (isAdmin() || existing().ownerUid == request.auth.uid)));
+
+      allow list: if resource.data.isPublic == true
+        || (isSignedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid));
+
+      allow create: if isVerified()
+        && isValidId(tugasId)
+        && isValidTugas(incoming())
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && existsAfter(/databases/$(database)/documents/matakuliah/$(incoming().id_matkul));
+
+      allow update: if isVerified()
+        && isValidId(tugasId)
+        && isValidTugas(incoming())
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Tier 1: Admin or Task Creator
+          (
+            (isAdmin() || existing().ownerUid == request.auth.uid)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['nama_tugas', 'deskripsi', 'tenggat_waktu', 'status', 'file_jawaban', 'file_id', 'catatan_jawaban', 'submittedByUid', 'submittedByName', 'isPublic', 'updatedAt'])
+          )
+          ||
+          // Tier 2: Verified Student Submitting Answer on Public Task
+          (
+            existing().isPublic == true
+            && incoming().submittedByUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'file_jawaban', 'file_id', 'catatan_jawaban', 'submittedByUid', 'submittedByName', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isVerified()
+        && isValidId(tugasId)
+        && (isAdmin() || existing().ownerUid == request.auth.uid);
+    }
+
+    // ========================================================
+    // COLLECTION: FILES & CHUNKS (SHARED DOWNLOADABLE ATTACHMENTS)
+    // ========================================================
+    match /files/{fileId} {
+      allow get: if isValidId(fileId)
+        && (existing().isPublic == true || (isSignedIn() && (isAdmin() || existing().ownerUid == request.auth.uid)));
+
+      allow list: if resource.data.isPublic == true
+        || (isSignedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid));
+
+      allow create: if isVerified()
+        && isValidId(fileId)
+        && isValidUploadedFile(incoming())
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAt == request.time;
+
+      allow delete: if isVerified()
+        && isValidId(fileId)
+        && (isAdmin() || existing().ownerUid == request.auth.uid);
+
+      match /chunks/{chunkId} {
+        allow get: if isValidId(fileId)
+          && isValidId(chunkId)
+          && (existing().isPublic == true || (isSignedIn() && (isAdmin() || existing().ownerUid == request.auth.uid)));
+
+        allow list: if resource.data.isPublic == true
+          || (isSignedIn() && (isAdmin() || resource.data.ownerUid == request.auth.uid));
+
+        allow create: if isVerified()
+          && isValidId(fileId)
+          && isValidId(chunkId)
+          && isValidFileChunk(incoming())
+          && incoming().ownerUid == request.auth.uid
+          && exists(/databases/$(database)/documents/files/$(fileId))
+          && get(/databases/$(database)/documents/files/$(fileId)).data.ownerUid == request.auth.uid;
+
+        allow delete: if isVerified()
+          && isValidId(fileId)
+          && isValidId(chunkId)
+          && (isAdmin() || existing().ownerUid == request.auth.uid);
+      }
+    }
+
+    // ========================================================
+    // COLLECTION: USERS (MAHASISWA PROFILES)
+    // ========================================================
+    match /users/{userId} {
+      allow get: if isSignedIn()
+        && isValidId(userId)
+        && (userId == request.auth.uid || isAdmin());
+
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn()
+        && isValidId(userId)
+        && userId == request.auth.uid
+        && isValidUserProfile(incoming())
+        && incoming().role == 'mahasiswa'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && isValidId(userId)
+        && (userId == request.auth.uid || isAdmin())
+        && isValidUserProfile(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (isAdmin() || (
+          incoming().role == existing().role
+          && incoming().diff(existing()).affectedKeys().hasOnly(['nim', 'nama', 'updatedAt'])
+        ));
+
+      allow delete: if isAdmin();
+    }
+  }
+}

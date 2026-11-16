@@ -1,0 +1,125 @@
+{
+  "entities": {
+    "MataKuliah": {
+      "title": "MataKuliah",
+      "description": "Data mata kuliah beserta dosen pengampu dan jadwal kuliah harian.",
+      "type": "object",
+      "properties": {
+        "nama_matkul": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "dosen_pengampu": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "hari": { "type": "string", "enum": ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"] },
+        "jam": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "isPublic": { "type": "boolean" },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["nama_matkul", "dosen_pengampu", "hari", "jam", "isPublic", "ownerUid", "createdAt", "updatedAt"]
+    },
+    "Materi": {
+      "title": "Materi",
+      "description": "Modul dan bahan ajar perkuliahan per pertemuan.",
+      "type": "object",
+      "properties": {
+        "id_matkul": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "pertemuan": { "type": "number" },
+        "judul_materi": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "file_path": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "file_id": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "isPublic": { "type": "boolean" },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id_matkul", "pertemuan", "judul_materi", "file_path", "isPublic", "ownerUid", "createdAt", "updatedAt"]
+    },
+    "Tugas": {
+      "title": "Tugas",
+      "description": "Tugas dan kuis perkuliahan beserta status otomatis dan lampiran berkas jawaban.",
+      "type": "object",
+      "properties": {
+        "id_matkul": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "nama_tugas": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "deskripsi": { "type": "string", "minLength": 0, "maxLength": 2000 },
+        "tenggat_waktu": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "status": { "type": "string", "enum": ["Belum Dimulai", "Proses", "Selesai"] },
+        "file_jawaban": { "type": "string", "minLength": 0, "maxLength": 255 },
+        "file_id": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "catatan_jawaban": { "type": "string", "minLength": 0, "maxLength": 2000 },
+        "submittedByUid": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "submittedByName": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "isPublic": { "type": "boolean" },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id_matkul", "nama_tugas", "deskripsi", "tenggat_waktu", "status", "isPublic", "ownerUid", "createdAt", "updatedAt"]
+    },
+    "UploadedFile": {
+      "title": "UploadedFile",
+      "description": "Metadata berkas jawaban atau materi yang tersimpan di cloud.",
+      "type": "object",
+      "properties": {
+        "fileName": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "mimeType": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "sizeBytes": { "type": "number" },
+        "chunkCount": { "type": "number" },
+        "isPublic": { "type": "boolean" },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fileName", "mimeType", "sizeBytes", "chunkCount", "isPublic", "ownerUid", "createdAt"]
+    },
+    "FileChunk": {
+      "title": "FileChunk",
+      "description": "Potongan konten base64 berkas agar mendukung unggahan hingga beberapa megabyte.",
+      "type": "object",
+      "properties": {
+        "index": { "type": "number" },
+        "data": { "type": "string", "minLength": 1, "maxLength": 700000 },
+        "isPublic": { "type": "boolean" },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": ["index", "data", "isPublic", "ownerUid"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Profil mahasiswa terdaftar yang menyimpan NIM dan Nama Lengkap.",
+      "type": "object",
+      "properties": {
+        "nim": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "nama": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["mahasiswa", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["nim", "nama", "role", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/matakuliah/{matkulId}": {
+      "schema": { "$ref": "#/entities/MataKuliah" },
+      "description": "Koleksi mata kuliah yang dibagikan secara publik untuk konsistensi lintas akun dan perangkat."
+    },
+    "/materi/{materiId}": {
+      "schema": { "$ref": "#/entities/Materi" },
+      "description": "Koleksi modul materi perkuliahan yang terhubung ke mata kuliah."
+    },
+    "/tugas/{tugasId}": {
+      "schema": { "$ref": "#/entities/Tugas" },
+      "description": "Koleksi tugas & kuis beserta status otomatis dan referensi berkas jawaban."
+    },
+    "/files/{fileId}": {
+      "schema": { "$ref": "#/entities/UploadedFile" },
+      "description": "Metadata berkas yang diunggah agar dapat diunduh siapa pun yang mengakses aplikasi."
+    },
+    "/files/{fileId}/chunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/FileChunk" },
+      "description": "Subkoleksi potongan data base64 untuk berkas yang diunggah."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Profil identitas mahasiswa (NIM & Nama Lengkap) per akun."
+    }
+  }
+}
