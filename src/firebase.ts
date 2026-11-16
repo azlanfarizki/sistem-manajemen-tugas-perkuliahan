@@ -13,7 +13,15 @@ import {
   setDoc,
   where,
 } from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
+const firebaseConfig = {
+  projectId: "symbolic-utility-rc62s",
+  appId: "1:803550275474:web:90034cc024e95c9acbc34b",
+  apiKey: "AIzaSyCvOMWzbWaVnWeIIYfBPu3AN4CIo911hbs",
+  authDomain: "symbolic-utility-rc62s.firebaseapp.com",
+  firestoreDatabaseId: "ai-studio-sistemmanajemenp-a3b8769b-a916-4f9d-8fad-2aed61f136d0",
+  storageBucket: "symbolic-utility-rc62s.firebasestorage.app",
+  messagingSenderId: "803550275474",
+};
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
