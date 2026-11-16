@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sistem Manajemen Perkuliahan & Tugas</title>
+    <meta name="description" content="Aplikasi manajemen perkuliahan, materi kuliah, dan tugas mahasiswa dengan notifikasi H-1, pop-up modal CRUD, dan pelacakan tenggat waktu." />
+    <meta property="og:title" content="Sistem Manajemen Perkuliahan & Tugas" />
+    <meta property="og:description" content="Aplikasi manajemen perkuliahan, materi kuliah, dan tugas mahasiswa dengan notifikasi H-1, pop-up modal CRUD, dan pelacakan tenggat waktu." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      // Kompatibilitas untuk browser extensions yang meng-override window.fetch
+      (function() {
+        try {
+          var realFetch = window.fetch ? window.fetch.bind(window) : null;
+          var currentFetch = realFetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() {
+              return currentFetch;
+            },
+            set: function(newFetch) {
+              currentFetch = newFetch;
+            },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {
+          // Abaikan jika tidak diizinkan
+        }
+
+        // Tangkal error yang berasal dari browser extension (chrome-extension://)
+        window.addEventListener('error', function(event) {
+          if (
+            (event.filename && event.filename.includes('chrome-extension://')) ||
+            (event.message && event.message.includes('Cannot set property fetch'))
+          ) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(event) {
+          if (event.reason && String(event.reason).includes('Cannot set property fetch')) {
+            event.preventDefault();
+          }
+        });
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

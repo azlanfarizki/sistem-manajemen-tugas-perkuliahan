@@ -1,0 +1,6 @@
+{
+  "name": "Sistem Manajemen Perkuliahan & Tugas",
+  "description": "Aplikasi manajemen perkuliahan, materi kuliah, dan tugas mahasiswa dengan notifikasi H-1, pop-up modal CRUD, dan pelacakan tenggat waktu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
